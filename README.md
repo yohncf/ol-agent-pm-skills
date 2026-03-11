@@ -1,264 +1,156 @@
-# OCV Data Extraction
+# OCV Feedback Extraction
 
-## TL;DR
+## What is this?
 
-Config-driven CLI tool that extracts verbatim customer feedback from OCV (One Customer Voice) to CSV. Handles authentication, date filtering, Elasticsearch API pagination, PII scrubbing, sentiment/intent classification, and category tagging automatically.
+A tool that pulls customer feedback from [OCV](https://ocv.microsoft.com) into a clean Excel-ready CSV. It grabs what customers actually wrote, along with sentiment, language, and issue categories — all with personal info scrubbed out automatically.
 
-```bash
-node scripts/extract_standalone.js --config configs/accounts.json --date yesterday --summary
-```
+**Why it exists:** OCV's built-in export gives you metadata but not the actual verbatim feedback in a structured format. This tool fills that gap.
 
----
-
-## Setup
-
-**Prerequisites:** Node.js 18+ and Microsoft Edge installed.
-
-```bash
-cd ocv-extraction
-npm install
-npm run check        # Verifies everything is ready
-```
-
-The `npm run check` command validates Node.js version, Playwright, Edge, config files, and output directories. Run it first to catch any issues.
-
-No browser downloads needed — the script uses your installed Edge binary.
-
-**First-time config:** Either create a config manually (see [Config Format](#config-format)) or use the Claude Code / Copilot CLI setup wizard:
-
-```
-/setup-ocv
-```
+**Who it's for:** PMs on Outlook (or any team using OCV) who want to analyze customer feedback at scale.
 
 ---
 
-## Quick Start
+## What you get
 
-```bash
-npm run extract:accounts     # Yesterday's Accounts feedback
-npm run extract:7d           # Last 7 days of Accounts feedback
-```
+A CSV file you can open in Excel with these columns:
 
-Or with full control:
+| Column | What it tells you |
+|--------|-------------------|
+| **Comment** | What the customer wrote (translated to English, personal info removed) |
+| **Sentiment** | Positive, Negative, or Neutral |
+| **Intent** | Problem, Request, or Compliment |
+| **Category** | Issue type (e.g., "Sign-in", "Send/Receive") — you define these |
+| **Provider** | ISP name if applicable (e.g., "Comcast", "GMX") |
+| **Language** | Original language (en, de, fr, etc.) |
+| **Date** | When the feedback was submitted |
 
-```bash
-node scripts/extract_standalone.js --config configs/<area>.json --date <value> --summary [output.csv]
-```
-
-| Flag | Description |
-|------|-------------|
-| `--config <path>` | Config file (required). e.g., `configs/accounts.json` |
-| `--date <value>` | Date filter (see table below). Defaults to `today`. |
-| `--summary` | Print aggregate stats to terminal after extraction |
-| `--url <url>` | Override the config's `ocv_url` (optional) |
-
-### Date Options
-
-| Value | Description |
-|-------|-------------|
-| `today` | Today only (default) |
-| `yesterday` | Yesterday only |
-| `7d` | Last 7 days |
-| `14d` | Last 14 days |
-| `30d` | Last 30 days |
-| `3m` | Last 3 months |
-| `6m` | Last 6 months |
-| `all` | All time |
-| `2026-02-20:2026-02-24` | Custom range (YYYY-MM-DD) |
-
-### Examples
-
-```bash
-# Yesterday's feedback for Accounts area
-node scripts/extract_standalone.js --config configs/accounts.json --date yesterday --summary
-
-# Last 7 days, all Monarch feedback, custom output file
-node scripts/extract_standalone.js --config configs/monarch-all.json --date 7d --summary data/monarch_7d.csv
-
-# Custom date range
-node scripts/extract_standalone.js --config configs/accounts.json --date 2026-02-20:2026-02-24 --summary
-```
-
-### The `--summary` Flag
-
-When `--summary` is passed, the script prints aggregate statistics to the terminal after extraction:
-
-```
---- Summary (aggregate stats, no customer content) ---
-Items:      247
-Date range: 03/04/26 to 03/05/26
-PII:        12 redactions (2 emails, 4 phones, 6 tags)
-Sentiment:  Negative=180  Neutral=42  Positive=25
-Intent:     Problem=155  Request=60  Compliment=12  Unknown=20
-Categories: Sign-in=35  Send/Receive=28  Account Setup=15  Uncategorized=169
-Languages:  en=200  de=25  fr=12  ja=10
-Providers:  Comcast=18  GMX=12  Web.de=9  AOL=7  T-Online=5
-Noise:      8 flagged
-```
-
-The summary contains only counts and distributions, never customer verbatim text.
-
-### Authentication
-
-- **First run:** Edge opens and you complete SSO login manually. Takes ~30 seconds.
-- **Subsequent runs:** SSO cookies are cached in `.browser-profile/`, so authentication is automatic. The browser opens, extracts, writes CSV, and closes on its own.
-
-To reset authentication (e.g., after a password change), delete `.browser-profile/` and run again.
+Plus: Feature tags, Noise flags, and OCV Area Path for filtering.
 
 ---
 
-## Output Format
+## Getting started
 
-```csv
-Date,Comment,Provider,Sentiment,Intent,Feature,Category,Language,Noise,AreaPath
-"03/05/26 2:30PM","I can't sync my email","Comcast","Negative","Problem","IMAP","Sign-in","en","","Outlook\Monarch\Accounts"
-```
+**Time to set up: ~10 minutes.** Full walkthrough: **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)**
 
-| Column | Description |
-|--------|-------------|
-| Date | When the feedback was submitted (MM/DD/YY HH:MMAM/PM) |
-| Comment | Verbatim customer text, translated to English, PII scrubbed |
-| Provider | ISP name from whitelist (e.g., "Comcast") or empty. Non-ISP domains redacted as `[CUSTOM_DOMAIN]`. |
-| Sentiment | Positive / Negative / Neutral |
-| Intent | Problem / Request / Compliment / Unknown |
-| Feature | OCV tags filtered through the config's `feature_tags` whitelist |
-| Category | Issue bucket matched by config keyword patterns |
-| Language | Original language code (en, de, fr, etc.) |
-| Noise | "true" if matched a noise pattern; empty otherwise |
-| AreaPath | OCV area hierarchy (pipe-delimited) |
+Short version:
 
----
+1. **Install Node.js** from [nodejs.org](https://nodejs.org) (LTS version) if you don't have it
+2. **Clone this repo** and install dependencies:
+   ```
+   git clone https://github.com/lreisdesouza_microsoft/ocv-extraction.git
+   cd ocv-extraction
+   npm install
+   ```
+3. **Verify setup:**
+   ```
+   npm run check
+   ```
+   This checks that everything is installed. All items should show ✅.
 
-## Config Format
+4. **Create your config** — tell the tool which OCV area to pull from. In GitHub Copilot CLI or Claude Code, just say:
+   > "set up OCV for my area"
 
-Each area has a JSON config in `configs/`. See `configs/_template.json` for the structure or `configs/accounts.json` for a working example.
-
-```json
-{
-  "name": "Accounts",
-  "description": "Outlook Monarch Accounts feedback",
-  "ocv_url": "https://ocv.microsoft.com/#/discover/?...",
-  "entity": {
-    "type": "isp",
-    "source": "email_domain",
-    "whitelist_file": "isp_whitelist.json",
-    "redacted_label": "[CUSTOM_DOMAIN]"
-  },
-  "categories": {
-    "Sign-in": {
-      "description": "Login and authentication issues",
-      "match": ["sign.?in", "login", "password", "can't log"],
-      "exclude": ["sign.*up"]
-    }
-  },
-  "feature_tags": ["IMAP", "CloudCache", "Gmail"],
-  "noise_patterns": ["^test$", "asdf", "^\\.$"]
-}
-```
-
-**Available configs:**
-- `accounts.json` — Outlook Monarch Accounts (IMAP, Cloud Cache, third-party)
-- `attachments.json` — Outlook attachments feedback
-- `monarch-all.json` — All Monarch feedback (minimal filtering)
-- `_template.json` — Starting point for new areas
+   The assistant walks you through it. No code editing needed.
 
 ---
 
-## How It Works
+## Daily use
+
+### With an AI assistant (recommended)
+
+If you use **GitHub Copilot CLI** or **Claude Code**, just talk to it:
+
+> "Extract OCV feedback for yesterday"
+>
+> "Pull last 7 days of feedback"
+>
+> "Analyze the feedback from last week"
+>
+> "What are the top themes in the last 30 days of feedback?"
+
+The assistant handles file paths, date math, and output formatting for you.
+
+### Without an AI assistant
 
 ```
-Config + date ──> Launch Edge ──> Navigate to OCV ──> Capture API request
-                                                            │
-CSV file <── PII scrub <── Parse hits <── Paginate API <────┘
+npm run extract:accounts
 ```
 
-1. **Config loading** — Reads the area config for URL, categories, feature tags, noise patterns, and entity settings.
-2. **Browser launch** — Opens Edge via Playwright with a persistent profile (`.browser-profile/`).
-3. **Navigation** — Loads OCV with date parameters applied to the URL.
-4. **API capture** — Intercepts OCV's Elasticsearch request to capture the query and auth headers.
-5. **API pagination** — Replays the query with `size=200` pages using Elasticsearch `search_after` (cursor-based) to paginate through all results without offset limits.
-6. **Field extraction** — Parses each hit for comment, date, sentiment, intent, tags, provider, and area path.
-7. **PII scrubbing** — Scrubs emails, phone numbers, and OCV redaction tags from all comments in-memory.
-8. **CSV export** — Writes the cleaned, categorized data to disk.
-9. **Summary** (optional) — Prints aggregate statistics to the terminal if `--summary` is passed.
+This pulls yesterday's feedback and prints a summary. Open the CSV in Excel for the full data.
 
-**DOM fallback:** If the API capture fails, the script falls back to DOM scraping (limited to ~400 items, fewer data fields).
+### Date options
+
+| Say this | Gets you |
+|----------|----------|
+| yesterday | Yesterday's feedback |
+| 7d | Last 7 days |
+| 30d | Last 30 days |
+| 3m | Last 3 months |
 
 ---
 
-## PII Handling
+## AI-powered analysis
 
-All comments are scrubbed in-memory before the CSV is written to disk. Three layers of protection:
+After extracting data, ask the assistant to analyze it:
 
-| Layer | What it does |
-|-------|-------------|
-| OCV server-side | Redacts some emails as `[PII: Email]` before rendering |
-| Client-side regex | Catches raw emails and phone numbers OCV missed |
-| ISP whitelist | Extracts only public ISP names from email domains; redacts all other domains as `[CUSTOM_DOMAIN]` |
+> "Analyze the accounts feedback"
 
-The ISP whitelist (`scripts/isp_whitelist.json`) contains ~55 public consumer ISPs with ~150 domain patterns. Small organizations, healthcare, religious, and personal domains are explicitly excluded. See `docs/PRIVACY_REVIEW.md` for the full privacy analysis.
+You get:
+
+- **Top themes** — the 10 most common issues customers are reporting
+- **Category suggestions** — new categories to add to your config, with ready-to-paste patterns
+- **High-value feedback** — row numbers of the most actionable items (specific errors, competitor mentions, impact descriptions)
+- **Executive summary** — a TL;DR you can paste into a status update
 
 ---
 
-## AI Assistant Integration
+## How authentication works
 
-The project includes skills that work in both **Claude Code** and **GitHub Copilot CLI**:
+The first time you run an extraction, Edge opens and asks you to sign in with your Microsoft account. Do that once — after that, it remembers your login and runs automatically.
 
-| Skill | What it does |
-|-------|-------------|
-| `extract-ocv` | Runs the extraction command with date filtering and config resolution |
-| `ocv-analyze` | AI-powered theme discovery, category suggestions, and executive summaries |
-| `setup-ocv` | Walks you through creating a config file for your area |
+If authentication stops working (e.g., after a password change), the tool clears its cache and asks you to sign in again.
 
-Skills are stored in `.claude/skills/` and loaded automatically by both tools. In Copilot CLI, say "extract ocv yesterday accounts" or use `/skills list` to see available skills.
+---
 
-Per the E+D Data Use Guidance (March 2026), AI assistants report only aggregate summary stats from `--summary`, not individual customer verbatim text.
+## Privacy
+
+- All data stays on your machine and within the Microsoft network. No external services.
+- Personal info (emails, phone numbers) is automatically removed before the CSV is saved.
+- Email domains are only identified for ~55 known public ISPs (Gmail, Comcast, etc.). All other domains are redacted.
+- See [docs/PRIVACY_REVIEW.md](docs/PRIVACY_REVIEW.md) for the full review.
+
+---
+
+## Customizing for your area
+
+Each product area gets its own config file that defines:
+
+- **Which OCV data to pull** (your filtered OCV URL)
+- **Issue categories** (keyword patterns like "sign-in", "sync", "password")
+- **Feature tags** (which OCV tags matter for your area)
+- **Noise patterns** (spam, test entries, off-topic feedback)
+
+Start with the guided setup (ask the AI assistant "set up OCV for my area"), or copy `configs/_template.json` and edit it manually. The [Getting Started guide](docs/GETTING_STARTED.md) walks through both options.
 
 ---
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| Not sure if everything is set up | Run `npm run check` to verify all dependencies |
-| SSO login not appearing | Delete `.browser-profile/` and run again |
-| Multiple "Sign in" tabs / stuck redirect | Stale browser profile. Delete `.browser-profile/` and retry. Complete SSO on the first tab only. |
-| 0 items extracted | Check that the OCV URL in your config has the right filters. Try `--date 7d` first. |
-| API error / fallback to DOM | OCV may have changed its API. Check the request intercept in the script. |
-| Timeout errors | OCV may be slow. Increase the `waitUntil` timeout in `page.goto()`. |
-| Edge not found | Install Edge or change `channel: 'msedge'` to `channel: 'chrome'` in the script |
-| Categories not matching | Check regex patterns in your config. Use [regex101.com](https://regex101.com) to test. |
-| Missing provider data | Ensure `entity` is configured in your config with a valid `whitelist_file` path. |
+| Problem | What to do |
+|---------|-----------|
+| Not sure if setup is correct | Run `npm run check` — it tells you what's missing |
+| Edge doesn't open / login stuck | Delete the `.browser-profile` folder and try again |
+| No feedback extracted | Check that your OCV URL shows results when you open it in a browser |
+| Categories aren't matching | The AI assistant can suggest new categories — ask "analyze the feedback" |
 
 ---
 
-## Files
+## Project info
 
-| File | Purpose |
-|------|---------|
-| `scripts/extract_standalone.js` | Main CLI extraction script |
-| `scripts/analyze_local.js` | Local LLM analysis via Ollama (optional) |
-| `scripts/ods_extract.js` | ODS Sara ticket extraction (POC) |
-| `scripts/ods_summarize.js` | ODS chat summarization via local LLM |
-| `scripts/preflight.js` | Dependency checker (`npm run check`) |
-| `scripts/lib/csv_parser.js` | Shared RFC 4180 CSV parser |
-| `scripts/isp_whitelist.json` | Tier 1 ISP whitelist for provider identification |
-| `configs/` | Area config files (one per product area) |
-| `configs/_template.json` | Template for creating new configs |
-| `data/` | Extracted CSV output (daily snapshots) |
-| `.claude/skills/` | AI assistant skill definitions |
-| `.claudeignore` | Blocks browser profiles from AI assistant indexing |
-| `docs/PRIVACY_REVIEW.md` | Formal privacy and data handling review |
-| `docs/FHL_JOURNEY.md` | Project narrative document |
-| `package.json` | Dependencies and npm scripts |
-
----
-
-## Context
-
-**Why this exists:** OCV's built-in export doesn't include verbatim feedback text with structured metadata. This tool captures what users actually wrote, with sentiment, intent, and category analysis.
-
-**Why config-driven:** Different teams track different product areas with different category definitions and entity tracking needs. Configs make the tool reusable across teams.
-
-**Project origin:** Unified Inbox (Monarch) — IMAP account supportability
-**Created:** 2026-02-11
+| | |
+|---|---|
+| **Origin** | Unified Inbox (Monarch) — IMAP account supportability |
+| **Created** | February 2026 |
+| **Technical docs** | [docs/TECHNICAL.md](docs/TECHNICAL.md) |
+| **Privacy review** | [docs/PRIVACY_REVIEW.md](docs/PRIVACY_REVIEW.md) |
+| **Setup guide** | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) |
