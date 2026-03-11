@@ -1,0 +1,3 @@
+# Browser profiles (SSO cookies — should not be indexed)
+.browser-profile/
+.browser-profile-ods/

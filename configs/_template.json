@@ -1,0 +1,34 @@
+{
+  "_instructions": "Copy this file and rename to <your-area>.json. Fill in your OCV URL, categories, and feature tags. See accounts.json for a complete example.",
+
+  "name": "Your Area Name",
+  "description": "Brief description of what this config covers",
+  "ocv_url": "YOUR_OCV_DISCOVER_URL_HERE",
+
+  "entity": {
+    "_instructions": "Optional. Define if you want to identify a specific entity (e.g., ISP provider, feature name) from the data. Remove this section if not needed.",
+    "type": "provider",
+    "source": "email_domain",
+    "whitelist_file": "isp_whitelist.json",
+    "redacted_label": "[CUSTOM_DOMAIN]"
+  },
+
+  "categories": {
+    "_instructions": "Define issue buckets. Each category has: match (keywords that trigger it), require (additional keywords that must ALSO be present, optional), exclude (keywords that disqualify, optional). All patterns are regex. The first matching category wins.",
+
+    "Example Category": {
+      "description": "What this category captures",
+      "match": ["keyword1", "keyword2", "phrase\\s*with\\s*spaces"],
+      "require": [],
+      "exclude": []
+    }
+  },
+
+  "feature_tags": [
+    "_instructions: List OCV CustomTags that are meaningful for your area. Everything else is dropped."
+  ],
+
+  "noise_patterns": [
+    "_instructions: Regex patterns for feedback that should be flagged as noise (competitive comparisons, off-topic, etc.)"
+  ]
+}

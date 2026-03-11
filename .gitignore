@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Extracted data (customer content — do not commit)
+data/*.csv
+data/*.json
+data/*.png
+
+# Browser profiles (SSO cookies)
+.browser-profile/
+.browser-profile-ods/
+
+# Personal configs (contain area-specific OCV URLs)
+configs/*.json
+!configs/_template.json
+
+# FHL demo and presentation materials (personal content)
+demo/
+docs/FHL_*.md
+
+# Local AI assistant settings
+.claude/settings.local.json
+
+# OS files
+Thumbs.db
+.DS_Store

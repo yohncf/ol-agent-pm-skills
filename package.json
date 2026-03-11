@@ -1,0 +1,18 @@
+{
+  "name": "ocv-extraction",
+  "version": "1.0.0",
+  "description": "Extract verbatim feedback from OCV (One Customer Voice) to CSV",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "extract": "node scripts/extract_standalone.js",
+    "extract:accounts": "node scripts/extract_standalone.js --config configs/accounts.json --date yesterday --summary",
+    "extract:7d": "node scripts/extract_standalone.js --config configs/accounts.json --date 7d --summary",
+    "analyze": "node scripts/analyze_local.js",
+    "check": "node scripts/preflight.js"
+  },
+  "dependencies": {
+    "playwright": "^1.50.0"
+  }
+}
