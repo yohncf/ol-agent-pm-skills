@@ -13,6 +13,7 @@ data/*.png
 # Personal configs (contain area-specific OCV URLs)
 configs/*.json
 !configs/_template.json
+!configs/accounts.json
 
 # FHL demo and presentation materials (personal content)
 demo/
