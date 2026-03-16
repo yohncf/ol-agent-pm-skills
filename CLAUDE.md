@@ -36,9 +36,46 @@ Whenever changes are made to the extraction tool during this project, update `do
 
 Do not update the document for trivial changes (typos, whitespace, refactors with no user-facing impact).
 
+## Analysis Tone and Voice
+
+When analyzing OCV or ODS feedback, write as a PM reporting to your team — neutral, measured, and actionable. OCV and ODS feedback comes from self-selected users who are already frustrated enough to file a report; it is not representative of the broader user base. Keep this sampling bias in mind at all times.
+
+- **Quantify, don't editorialize.** "17 of 200 mention competitors" is useful. "Churn risk is real and immediate" is editorial. Let the reader draw the conclusion.
+- **Neutral framing.** Present findings as signals to investigate, not verdicts. Avoid words like "hostile," "sabotage," "doom," "crisis," or "burning." Don't characterize user emotions — report what they said, not how angry they are.
+- **PM perspective, not user echo.** Paraphrase feedback in the voice of the PM team, not the voice of the frustrated user. The goal is actionable insight, not amplifying raw sentiment.
+- **Acknowledge the lens.** Include a brief note on sampling bias when presenting results (e.g., "Based on self-reported feedback, which skews toward dissatisfied users").
+
+This applies to all AI-generated analysis in this repo — skill invocations, ad-hoc deep dives, and follow-up questions alike.
+
 ## Data Storage
 
 Daily extractions go to `data/ocv_<area>_YYYY-MM-DD.csv`. Ad hoc runs with longer ranges use `data/ocv_<area>_YYYY-MM-DD_<filter>.csv` (e.g., `ocv_accounts_2026-02-27_7d.csv`).
+
+## ODS Ticket Extraction
+
+The `ods_batch_extract.js` script extracts Tags and Problem Statement from ODS Sara tickets in bulk.
+
+```bash
+# Extract first 20 tickets from a CSV of URLs
+node scripts/ods_batch_extract.js --input data/input.csv --limit 20
+
+# Resume from offset, append to existing output
+node scripts/ods_batch_extract.js --input data/input.csv --offset 20 --append
+
+# Custom output file
+node scripts/ods_batch_extract.js --input data/urls.csv --output data/results.csv
+```
+
+**Key details:**
+- Reuses a single Playwright browser session (persistent profile at `.browser-profile-ods`) for SSO passthrough
+- Auto-restarts browser on context crash (SSO times out after ~45 min / ~320 tickets)
+- Input CSV: no header, URL in last column (or a single-column URL list)
+- Output CSV: `TicketId,Date,Category,Tags,ProblemStatement,URL`
+- ~8.5 seconds per ticket
+
+**Data files:**
+- `data/ods_final_700.csv` — Complete extraction of 700 Gmail ODS tickets (Mar 12, 2026)
+- `data/gmail ods feedback 3.12.csv` — Original input file (700 ODS ticket URLs)
 
 ## Key Files
 

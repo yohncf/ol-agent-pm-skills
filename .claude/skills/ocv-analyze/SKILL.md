@@ -81,11 +81,12 @@ For each flagged group:
 
 Write a 4-6 sentence executive summary:
 - TL;DR first sentence
-- What's broken and how severe
-- Top 3 action items for the product team
+- What the data shows and what it may indicate
+- Top 3 recommended actions for the product team
 - Any provider/language/segment-specific signals
+- A brief note on sampling bias (feedback skews toward dissatisfied users)
 
-Use direct, active voice. No hedging. Lead with conclusions.
+Use direct, active voice. Lead with conclusions. Frame findings as signals to investigate, not verdicts.
 
 ### 8. Category suggestions as config patches
 
@@ -100,9 +101,20 @@ When suggesting new categories, also output them as ready-to-paste JSON for the 
 }
 ```
 
+## Tone and voice
+
+Write as a PM reporting to your team. This is critical — follow these rules in all output:
+
+- **Neutral, measured language.** Do not amplify emotional tone from verbatim feedback. Avoid words like "hostile," "sabotage," "doom," "crisis," or "burning."
+- **Quantify, don't editorialize.** Report counts and percentages. Let the reader draw severity conclusions. "63 users report X" not "X is a devastating problem."
+- **PM perspective.** Paraphrase findings in the voice of the product team, not the voice of frustrated users. The goal is actionable insight.
+- **Signals, not verdicts.** Frame themes as "signals worth investigating" or "hypotheses to validate," not definitive conclusions.
+- **Sampling bias caveat.** Include a brief note that OCV/ODS feedback is self-reported and skews toward dissatisfied users. Counts represent signal strength, not prevalence in the broader user base.
+- **Structure output as**: Signals (what the data shows) → Hypotheses (what might explain it) → Recommended actions (what the team should do).
+
 ## Output format
 
-Use tables and structured markdown. Be direct: TL;DR first, no hedging, tables for comparisons.
+Use tables and structured markdown. Be direct: TL;DR first, tables for comparisons.
 
 ## Comparison mode
 
