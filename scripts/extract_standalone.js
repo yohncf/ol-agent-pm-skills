@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // OCV Standalone Extraction Script
 // Requires: Node.js 18+, Playwright, Microsoft Edge
-// Usage: node scripts/extract_standalone.js [--config <config.json>] [--url <ocv-url>] [output.csv] [--date <value>]
+// Usage: node scripts/extract_standalone.js [--config <config.json>] [--url <ocv-url>] [output.csv] [--date <value>] [--include-blank]
 //
 // Config-driven extraction. Each area (Accounts, Calendar, Copilot, etc.) has its own
 // config file in configs/ that defines the OCV URL, category keywords, feature tags,
@@ -28,6 +28,11 @@
 //   --date yesterday    Yesterday only
 //   --date 7d / 14d / 30d / 3m / 6m / all
 //   --date 2026-02-20:2026-02-24   Custom range (YYYY-MM-DD)
+//
+// Blank feedback:
+//   --include-blank     Include feedback with no verbatim text (empty Comment field).
+//                       By default, only feedback with text is extracted. Use this flag
+//                       to get ALL feedback for accurate sentiment/client metrics.
 
 let chromium;
 try {
@@ -60,6 +65,15 @@ const dateArg = extractArg('--date');
 const summaryFlag = rawArgs.includes('--summary');
 if (summaryFlag) rawArgs.splice(rawArgs.indexOf('--summary'), 1);
 
+const dumpFieldsFlag = rawArgs.includes('--dump-fields');
+if (dumpFieldsFlag) rawArgs.splice(rawArgs.indexOf('--dump-fields'), 1);
+
+const weeklySummaryFlag = rawArgs.includes('--weekly-summary');
+if (weeklySummaryFlag) rawArgs.splice(rawArgs.indexOf('--weekly-summary'), 1);
+
+const includeBlankFlag = rawArgs.includes('--include-blank');
+if (includeBlankFlag) rawArgs.splice(rawArgs.indexOf('--include-blank'), 1);
+
 // Remaining positional args: [output.csv]
 const outputFile = rawArgs[0] || `ocv_extract_${new Date().toISOString().slice(0, 10)}.csv`;
 
@@ -88,6 +102,7 @@ if (!ocvUrl) {
 }
 
 console.log(`Config: ${config.name} (${path.basename(configPath)})`);
+if (includeBlankFlag) console.log('Mode: Including feedback with blank verbatims (--include-blank)');
 
 // --- Build Runtime Objects from Config ---
 
@@ -166,7 +181,7 @@ const OFFSET_MAP = {
   'all': { relDateType: 'all', offset: 0 },
 };
 
-const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Category,Language,Noise,AreaPath';
+const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Category,Language,Noise,AreaPath,Client,Rating';
 
 // --- CSV Helpers ---
 
@@ -208,7 +223,7 @@ function parseHit(src) {
   // Comment: prefer translated (English) PII-redacted text
   const comment = src.TranslatedTextPiiRedacted || src.OriginalTextPiiRedacted
     || src.TranslatedText || src.OriginalText || src.CustomerVerbatimOriginal || '';
-  if (!comment) return null;
+  if (!comment && !includeBlankFlag) return null;
 
   const language = src.OriginalTextLanguage || '';
 
@@ -261,6 +276,21 @@ function parseHit(src) {
     }
   }
 
+  // Client: normalize Platform field into standard buckets
+  let client = '';
+  const platform = (src.Platform || '').toLowerCase();
+  if (/windows\s*desktop|win32|win64/.test(platform)) client = 'Desktop';
+  else if (/\bweb\b|owa|browser/.test(platform)) client = 'OWA';
+  else if (/\bmac\b|macos|osx/.test(platform)) client = 'Mac';
+  else if (/ios|iphone|ipad/.test(platform)) client = 'Mobile (iOS)';
+  else if (/android/.test(platform)) client = 'Mobile (Android)';
+  else if (/mobile/.test(platform)) client = 'Mobile';
+  else if (platform) client = platform;
+
+  // Rating: user's thumbs up/down from OCV feedback fields
+  const rating = src.FeedbackRating ?? src.OriginalRating ?? src.FeedbackScore ?? '';
+  const feedbackType = src.FeedbackType || '';
+
   return {
     date,
     comment,
@@ -272,6 +302,8 @@ function parseHit(src) {
     language,
     noise: detectNoise(comment),
     areaPath,
+    client,
+    rating: feedbackType || String(rating),
   };
 }
 
@@ -339,6 +371,9 @@ async function extractViaAPI(page, capturedQuery, capturedHeaders) {
   capturedQuery.from = 0;
   delete capturedQuery.highlight;
 
+  // Get accurate total count (ES defaults to capping at 10,000)
+  capturedQuery.track_total_hits = true;
+
   // Ensure a sort field exists for search_after pagination
   if (!capturedQuery.sort || capturedQuery.sort.length === 0) {
     capturedQuery.sort = [{ CreatedDate: 'desc' }, { _doc: 'asc' }];
@@ -378,6 +413,47 @@ async function extractViaAPI(page, capturedQuery, capturedHeaders) {
     const hits = batch.hits.hits;
     if (hits.length === 0) break;
 
+    // --dump-fields: log all source field names and client-related values from first hit
+    if (dumpFieldsFlag && pageNum === 0 && hits.length > 0) {
+      const sample = hits[0]._source;
+      console.log('\n--- ALL _source KEYS ---');
+      console.log(Object.keys(sample).sort().join('\n'));
+      console.log('--- END ALL KEYS ---\n');
+      const clientKeys = Object.keys(sample).sort().filter(k =>
+        /app|client|source|platform|device|channel|ring|build|version|agent|meta|prop|telemetry|flight/i.test(k));
+      console.log('\n--- DUMP FIELDS (first hit _source keys) ---');
+      console.log(clientKeys.join('\n'));
+      console.log('\n--- CLIENT-RELATED FIELD VALUES ---');
+      for (const k of clientKeys) {
+        if (sample[k] !== undefined) {
+          const val = typeof sample[k] === 'object' ? JSON.stringify(sample[k]).slice(0, 300) : sample[k];
+          console.log(`  ${k}: ${val}`);
+        }
+      }
+      // Unique Platform + DeviceType values across all hits in this batch
+      const platCounts = {}, devCounts = {}, ratingCounts = {}, ftypeCounts = {};
+      for (const h of hits) {
+        const s = h._source;
+        const p = s.Platform || '(empty)';
+        const d = s.DeviceType || '(empty)';
+        const r = String(s.FeedbackRating ?? s.OriginalRating ?? '(empty)');
+        const ft = s.FeedbackType || '(empty)';
+        platCounts[p] = (platCounts[p] || 0) + 1;
+        devCounts[d] = (devCounts[d] || 0) + 1;
+        ratingCounts[r] = (ratingCounts[r] || 0) + 1;
+        ftypeCounts[ft] = (ftypeCounts[ft] || 0) + 1;
+      }
+      console.log('\n--- UNIQUE Platform VALUES (this batch) ---');
+      Object.entries(platCounts).sort((a,b) => b[1]-a[1]).forEach(([k,v]) => console.log(`  ${k}: ${v}`));
+      console.log('\n--- UNIQUE DeviceType VALUES (this batch) ---');
+      Object.entries(devCounts).sort((a,b) => b[1]-a[1]).forEach(([k,v]) => console.log(`  ${k}: ${v}`));
+      console.log('\n--- UNIQUE FeedbackRating VALUES (this batch) ---');
+      Object.entries(ratingCounts).sort((a,b) => b[1]-a[1]).forEach(([k,v]) => console.log(`  ${k}: ${v}`));
+      console.log('\n--- UNIQUE FeedbackType VALUES (this batch) ---');
+      Object.entries(ftypeCounts).sort((a,b) => b[1]-a[1]).forEach(([k,v]) => console.log(`  ${k}: ${v}`));
+      console.log('--- END DUMP ---\n');
+    }
+
     for (const hit of hits) {
       const src = hit._source;
       if (!src) continue;
@@ -388,7 +464,8 @@ async function extractViaAPI(page, capturedQuery, capturedHeaders) {
     pageNum++;
     console.log(`  Fetched ${allItems.length} of ${total} items...`);
 
-    if (allItems.length >= total) break;
+    // Stop when we've fetched all items or this page was incomplete (end of data)
+    if (hits.length < PAGE_SIZE) break;
 
     // Use last hit's sort values for next page
     const lastHit = hits[hits.length - 1];
@@ -623,7 +700,7 @@ async function main() {
     // Step 8: Write CSV
     const rows = results.map(item =>
       [item.date, item.comment, item.provider, item.sentiment, item.intent,
-       item.feature, item.category, item.language, item.noise, item.areaPath || '']
+       item.feature, item.category, item.language, item.noise, item.areaPath || '', item.client || '', item.rating || '']
         .map(csvEscape).join(',')
     );
     const csv = [CSV_HEADER, ...rows].join('\n');
@@ -670,12 +747,18 @@ async function main() {
 
       console.log('\n--- Summary (aggregate stats, no customer content) ---');
       console.log(`Items:      ${results.length}`);
+      if (includeBlankFlag) {
+        const withVerbatim = results.filter(r => r.comment).length;
+        const blank = results.length - withVerbatim;
+        console.log(`Verbatims:  ${withVerbatim} with text, ${blank} blank (${Math.round(blank / results.length * 100)}% blank)`);
+      }
       const summaryDates = results.map(r => r.date).filter(Boolean);
       if (summaryDates.length > 0) {
         console.log(`Date range: ${summaryDates[summaryDates.length - 1]} to ${summaryDates[0]}`);
       }
       console.log(`PII:        ${piiStats.total} redactions (${piiStats.emails} emails, ${piiStats.phones} phones, ${piiStats.ocvTags} tags)`);
       console.log(`Sentiment:  ${fmt(dist('sentiment'))}`);
+      console.log(`Rating:     ${fmt(dist('rating'))}`);
       console.log(`Intent:     ${fmt(dist('intent'))}`);
 
       const catDist = dist('category');
@@ -684,6 +767,11 @@ async function main() {
       }
 
       console.log(`Languages:  ${fmt(dist('language'), 10)}`);
+
+      const clientDist = dist('client');
+      if (clientDist.length > 0 && !(clientDist.length === 1 && clientDist[0][0] === 'Unknown')) {
+        console.log(`Clients:    ${fmt(clientDist)}`);
+      }
 
       if (domainMap) {
         const provDist = dist('provider').filter(([k]) => k !== 'Unknown' && k !== REDACTED_LABEL);
@@ -696,12 +784,219 @@ async function main() {
       console.log(`Noise:      ${noiseCount} flagged`);
     }
 
+    // Step 10: Generate weekly summary markdown (--weekly-summary flag)
+    if (weeklySummaryFlag && results.length > 0) {
+      generateWeeklySummary(results, config, piiStats);
+    }
+
   } catch (err) {
     console.error('Extraction failed:', err.message);
     process.exit(1);
   } finally {
     await context.close();
   }
+}
+
+// --- Weekly Summary Generation ---
+
+function generateWeeklySummary(results, config, piiStats) {
+  // Determine ISO week from the most recent item's date
+  const parseDateStr = (ds) => {
+    const m = ds.match(/^(\d{2})\/(\d{2})\/(\d{2})/);
+    if (!m) return null;
+    return new Date(2000 + parseInt(m[3]), parseInt(m[1]) - 1, parseInt(m[2]));
+  };
+
+  const dates = results.map(r => parseDateStr(r.date)).filter(Boolean);
+  if (dates.length === 0) return;
+
+  const latest = new Date(Math.max(...dates));
+  const earliest = new Date(Math.min(...dates));
+
+  // ISO week number
+  const getISOWeek = (d) => {
+    const tmp = new Date(d.getTime());
+    tmp.setHours(0, 0, 0, 0);
+    tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
+    const week1 = new Date(tmp.getFullYear(), 0, 4);
+    return 1 + Math.round(((tmp.getTime() - week1.getTime()) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+  };
+
+  const isoWeek = getISOWeek(latest);
+  const year = latest.getFullYear();
+  const weekStr = `${year}-W${String(isoWeek).padStart(2, '0')}`;
+
+  // Config name slug for filename
+  const nameSlug = (config.name || 'unknown').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/_+$/, '');
+  const summaryDir = path.join(path.dirname(path.resolve(outputFile)), 'summaries');
+  const summaryFile = path.join(summaryDir, `${nameSlug}_${weekStr}.md`);
+
+  if (fs.existsSync(summaryFile)) {
+    console.log(`Weekly summary already exists: ${summaryFile} (skipped)`);
+    return;
+  }
+
+  // Distribution helper
+  const dist = (field) => {
+    const counts = {};
+    for (const r of results) {
+      const val = r[field] || 'Unknown';
+      counts[val] = (counts[val] || 0) + 1;
+    }
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  };
+
+  const pct = (n, total) => total > 0 ? Math.round(n / total * 100) : 0;
+  const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const total = results.length;
+
+  // Build markdown
+  const lines = [];
+  const ln = (s) => lines.push(s);
+
+  ln(`# ${config.name} — Weekly Summary (${weekStr})`);
+  ln('');
+  ln(`**Date range:** ${fmtDate(earliest)} to ${fmtDate(latest)}`);
+  ln(`**Total items:** ${total}`);
+  ln(`**Generated:** ${new Date().toISOString().slice(0, 10)}`);
+  ln('');
+
+  // Sentiment table
+  ln('## Sentiment');
+  ln('');
+  ln('| Sentiment | Count | % |');
+  ln('|-----------|-------|---|');
+  for (const [k, v] of dist('sentiment')) {
+    ln(`| ${k} | ${v} | ${pct(v, total)}% |`);
+  }
+  ln('');
+
+  // Intent table
+  ln('## Intent');
+  ln('');
+  ln('| Intent | Count | % |');
+  ln('|--------|-------|---|');
+  for (const [k, v] of dist('intent')) {
+    ln(`| ${k} | ${v} | ${pct(v, total)}% |`);
+  }
+  ln('');
+
+  // Client breakdown
+  const clientDist = dist('client');
+  if (clientDist.length > 0 && !(clientDist.length === 1 && clientDist[0][0] === 'Unknown')) {
+    ln('## Client Breakdown');
+    ln('');
+    ln('| Client | Count | % | Neg% |');
+    ln('|--------|-------|---|------|');
+    for (const [client, count] of clientDist) {
+      const negCount = results.filter(r => (r.client || 'Unknown') === client && r.sentiment === 'Negative').length;
+      ln(`| ${client} | ${count} | ${pct(count, total)}% | ${pct(negCount, count)}% |`);
+    }
+    ln('');
+  }
+
+  // Category breakdown
+  const catDist = dist('category');
+  if (catDist.length > 0 && !(catDist.length === 1 && catDist[0][0] === 'Unknown')) {
+    ln('## Categories');
+    ln('');
+
+    // Build header with client columns
+    const clientNames = clientDist.filter(([k]) => k !== 'Unknown').map(([k]) => k);
+    const catHeader = ['Category', 'Total', '%'];
+    for (const c of clientNames) catHeader.push(c);
+    ln('| ' + catHeader.join(' | ') + ' |');
+    ln('| ' + catHeader.map(() => '---').join(' | ') + ' |');
+
+    for (const [cat, count] of catDist) {
+      if (cat === 'Unknown') continue;
+      const row = [cat, String(count), `${pct(count, total)}%`];
+      for (const c of clientNames) {
+        const clientCount = results.filter(r => r.category === cat && (r.client || 'Unknown') === c).length;
+        row.push(String(clientCount));
+      }
+      ln('| ' + row.join(' | ') + ' |');
+    }
+
+    const uncategorized = results.filter(r => !r.category || r.category === 'Unknown').length;
+    if (uncategorized > 0) {
+      const row = ['_Uncategorized_', String(uncategorized), `${pct(uncategorized, total)}%`];
+      for (const c of clientNames) {
+        const cc = results.filter(r => (!r.category || r.category === 'Unknown') && (r.client || 'Unknown') === c).length;
+        row.push(String(cc));
+      }
+      ln('| ' + row.join(' | ') + ' |');
+    }
+    ln('');
+  }
+
+  // Language breakdown (top 10)
+  ln('## Languages (top 10)');
+  ln('');
+  ln('| Language | Count | % |');
+  ln('|----------|-------|---|');
+  for (const [k, v] of dist('language').slice(0, 10)) {
+    ln(`| ${k} | ${v} | ${pct(v, total)}% |`);
+  }
+  ln('');
+
+  // Daily volume
+  ln('## Daily Volume');
+  ln('');
+  const dailyData = {};
+  for (const r of results) {
+    const d = parseDateStr(r.date);
+    if (!d) continue;
+    const day = fmtDate(d);
+    if (!dailyData[day]) dailyData[day] = { total: 0, neg: 0 };
+    dailyData[day].total++;
+    if (r.sentiment === 'Negative') dailyData[day].neg++;
+  }
+  ln('| Day | Total | Neg | Neg% |');
+  ln('|-----|-------|-----|------|');
+  for (const day of Object.keys(dailyData).sort()) {
+    const dd = dailyData[day];
+    ln(`| ${day} | ${dd.total} | ${dd.neg} | ${pct(dd.neg, dd.total)}% |`);
+  }
+  ln('');
+
+  // Red flags
+  const redFlags = {
+    'HTML in output': /html|font.?size|<div|<span|style=/i,
+    'Keep-it disappears': /keep.?it.*disappear|click.*keep.*disappear|disappear.*keep/i,
+    'Rate limit hit': /hourly.?limit|rate.?limit|limit.*request|reached.*limit/i,
+    'Cannot dismiss': /can.?t get out|didn.?t request this feature|don.?t want.*copilot|how.*turn.*off|disable.*copilot/i,
+    'Wrong word substitution': /changed.*word|wrong.*word|billing.*killing|substitut|replaced.*word/i,
+  };
+
+  const flagCounts = {};
+  for (const [flag, rx] of Object.entries(redFlags)) {
+    const count = results.filter(r => rx.test(r.comment)).length;
+    if (count > 0) flagCounts[flag] = count;
+  }
+
+  if (Object.keys(flagCounts).length > 0) {
+    ln('## Red Flags');
+    ln('');
+    ln('| Flag | Count |');
+    ln('|------|-------|');
+    for (const [flag, count] of Object.entries(flagCounts).sort((a, b) => b[1] - a[1])) {
+      ln(`| ${flag} | ${count} |`);
+    }
+    ln('');
+  }
+
+  // PII stats
+  ln('## Data Quality');
+  ln('');
+  ln(`- PII redactions: ${piiStats.total} (${piiStats.emails} emails, ${piiStats.phones} phones, ${piiStats.ocvTags} OCV tags)`);
+  ln(`- Noise flagged: ${results.filter(r => r.noise).length}`);
+  ln('');
+
+  // Write file
+  fs.mkdirSync(summaryDir, { recursive: true });
+  fs.writeFileSync(summaryFile, lines.join('\n'), 'utf8');
+  console.log(`Weekly summary: ${summaryFile}`);
 }
 
 main().catch(err => {
