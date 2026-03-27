@@ -97,13 +97,13 @@ After extracting data, ask the assistant to analyze it:
 >
 > "Categorize the feedback using AI"
 >
-> "Validate my regex categories"
+> "Validate my categories"
 
 The AI assistant reads the CSV directly and provides:
 
 - **Top themes** — the 10 most common issues customers are reporting
-- **AI categorization** — reclassify items using LLM instead of regex (higher accuracy, handles ambiguity)
-- **Category validation** — sample items per category, dominance warnings, conflict detection
+- **AI categorization** — classify items using LLM based on your config-defined taxonomy (handles ambiguity, no manual tuning)
+- **Category validation** — sample items per category, balance checks, ambiguity detection
 - **Category suggestions** — new categories to add to your config, with ready-to-paste patterns
 - **High-value feedback** — row numbers of the most actionable items (specific errors, competitor mentions, impact descriptions)
 - **Executive summary** — a TL;DR you can paste into a status update

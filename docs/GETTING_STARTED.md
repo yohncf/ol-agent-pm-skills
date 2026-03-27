@@ -193,7 +193,7 @@ analyze the accounts feedback from last week
 This gives you:
 - **Aggregate stats** — sentiment, intent, category distributions
 - **Theme discovery** — top recurring issues with estimated counts
-- **Category gap analysis** — suggestions for new categories with regex patterns
+- **Category gap analysis** — suggestions for new categories based on uncategorized items
 - **High-value flagging** — row numbers of the most actionable feedback
 - **Executive summary** — TL;DR for stakeholders
 

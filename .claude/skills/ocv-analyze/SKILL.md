@@ -19,8 +19,8 @@ Determine:
   - `full` — Run all analysis sections
   - `themes` — Theme discovery only
   - `categories` — Category gap analysis only
-  - `categorize` — AI-assisted categorization (reclassify items using LLM instead of regex)
-  - `validate` — Validate regex categories (sample items, dominance warnings, conflicts)
+  - `categorize` — AI-powered categorization (classify items using LLM based on config-defined taxonomy)
+  - `validate` — Validate assigned categories (sample items, dominance warnings, conflicts)
   - `flags` — Flag high-value verbatim only
   - `summary` — Executive summary only
   - `compare` — Compare two CSV files (requires two paths)
@@ -61,8 +61,8 @@ Present as a numbered list.
 
 If uncategorized items exceed 20% of total:
 - Read a sample of 50 uncategorized comments
-- Suggest 3-6 new category names with regex keyword patterns
-- Format each as: Category name, keywords (regex-ready), estimated count
+- Suggest 3-6 new category names with descriptions
+- Format each as: Category name, description, estimated count
 - Reference the existing categories from the config file in `configs/`
 
 ### 6. Flag high-value verbatim
@@ -92,40 +92,36 @@ Use direct, active voice. Lead with conclusions. Frame findings as signals to in
 
 ### 8. Category suggestions as config patches
 
-When suggesting new categories, also output them as ready-to-paste JSON for the config file:
+When suggesting new categories, output them as ready-to-paste JSON for the config file:
 ```json
 {
   "Category Name": {
-    "description": "What this catches",
-    "match": ["regex1", "regex2"],
-    "exclude": ["false_positive_pattern"]
+    "description": "What this catches"
   }
 }
 ```
 
-### 9. AI-assisted categorization (analysis-type: `categorize`)
+### 9. AI-powered categorization (analysis-type: `categorize`)
 
-When the user asks to categorize or reclassify feedback using AI:
+When the user asks to categorize feedback:
 
 1. **Load categories** from the config file in `configs/`. These define the taxonomy.
 2. **Read all items** from the CSV (Comment column).
 3. **Batch items** in groups of 50-100 for categorization.
 4. **For each batch**, classify each item into one of the config-defined categories (or "Uncategorized" if none fit). Output format per item: `row_number|category|confidence|one_sentence_reason`
-5. **Write results** to a new CSV with an added `AI_Category` column alongside the original `Category` (regex) column.
-6. **Show comparison**: how many items changed category, what categories grew/shrank, and % agreement between regex and AI.
-7. **Save** the updated CSV as `<original>_ai_categorized.csv`.
-
-AI categorization is slower than regex but produces higher accuracy (based on user testing: regex had 78% false positives in some categories and 65% uncategorized tail).
+5. **Write results** to a new CSV with a `Category` column reflecting the AI-assigned category.
+6. **Show distribution**: category counts, % of total, uncategorized rate.
+7. **Save** the updated CSV as `<original>_categorized.csv`.
 
 ### 10. Category validation (analysis-type: `validate`)
 
-When the user asks to validate categories, run these checks on the regex-categorized CSV:
+When the user asks to validate categories, run these checks on the categorized CSV:
 
-1. **Sample display**: For each category, show 3-5 sample Comment texts. Let the user eyeball whether the regex is matching correctly.
+1. **Sample display**: For each category, show 3-5 sample Comment texts. Let the user eyeball whether items are correctly assigned.
 2. **Uncategorized clustering**: If >20% of items are uncategorized, sample 30-50 of them, identify 3-5 keyword clusters, and suggest new categories.
-3. **Pattern dominance warning**: For each category, check if a single regex pattern accounts for >60% of matches. If so, flag it — the category may be too narrow or the pattern too greedy.
-4. **Multi-category conflict detection**: Find items that would match multiple categories if first-match-wins weren't enforced. Show overlap counts between category pairs.
-5. **Coverage summary table**: Show each category with count, % of total, top matching pattern, and a quality flag (✅ looks good, ⚠️ check samples, 🔴 high false-positive risk).
+3. **Category balance check**: Flag categories with <5 items (may be too narrow) or >40% of total (may be too broad).
+4. **Multi-category ambiguity**: Find items where the AI confidence was low (<0.7) and show which categories competed. This helps refine category definitions.
+5. **Coverage summary table**: Show each category with count, % of total, and a quality flag (✅ looks good, ⚠️ check samples, 🔴 review needed).
 
 ## Tone and voice
 
