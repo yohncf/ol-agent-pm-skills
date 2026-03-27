@@ -18,6 +18,21 @@ Determine which workflow the user needs:
 1. **Extract from existing URLs** — User has a CSV of ODS ticket URLs or IDs
 2. **Sample and extract** — User wants to query Kusto for tickets, sample, then extract
 
+### Population vs. sample decision (REQUIRED)
+
+Before running any extraction that involves querying Kusto for tickets, **always ask the user** whether they want the full population or a random sample. Present this table:
+
+| | Full Population | Random Sample (95% CI, ±4%) |
+|---|---|---|
+| **Accuracy** | Exact counts, drill into any subgroup | ±4% margin of error at 600 items |
+| **Duration** | ~18 min per 1,000 tickets | ~11 min for 600 tickets |
+| **Best for** | Root cause analysis, small populations (<2K) | Trend detection, topic analysis, large populations |
+| **Limitation** | Hours for large sets (20K+ = ~6 hrs) | Can't reliably analyze subgroups with <30 items |
+
+**Default recommendation**: Random sample for populations >2,000 tickets. Full population for smaller sets.
+
+If the user chooses a random sample, use stratified sampling (via `generate_sample_urls.py`) to preserve the distribution of key dimensions (e.g., AccountType).
+
 ### Parameters to resolve
 
 - **input**: Path to CSV with ticket URLs/IDs. If not provided, check `data/` for recent URL files.
