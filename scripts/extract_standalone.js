@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // OCV Standalone Extraction Script
 // Requires: Node.js 18+, Playwright, Microsoft Edge
-// Usage: node scripts/extract_standalone.js [--config <config.json>] [--url <ocv-url>] [output.csv] [--date <value>] [--include-blank]
+// Usage: node scripts/extract_standalone.js [--config <config.json>] [--url <ocv-url>] [output.csv] [--date <value>] [--include-structured]
 //
 // Config-driven extraction. Each area (Accounts, Calendar, Copilot, etc.) has its own
 // config file in configs/ that defines the OCV URL, category keywords, feature tags,
@@ -71,8 +71,10 @@ if (dumpFieldsFlag) rawArgs.splice(rawArgs.indexOf('--dump-fields'), 1);
 const weeklySummaryFlag = rawArgs.includes('--weekly-summary');
 if (weeklySummaryFlag) rawArgs.splice(rawArgs.indexOf('--weekly-summary'), 1);
 
-const includeBlankFlag = rawArgs.includes('--include-blank');
-if (includeBlankFlag) rawArgs.splice(rawArgs.indexOf('--include-blank'), 1);
+// --include-structured (or legacy alias --include-blank): include feedback with no verbatim text
+const includeStructured = rawArgs.includes('--include-structured') || rawArgs.includes('--include-blank');
+if (rawArgs.includes('--include-structured')) rawArgs.splice(rawArgs.indexOf('--include-structured'), 1);
+if (rawArgs.includes('--include-blank')) rawArgs.splice(rawArgs.indexOf('--include-blank'), 1);
 
 // Remaining positional args: [output.csv]
 const outputFile = rawArgs[0] || `ocv_extract_${new Date().toISOString().slice(0, 10)}.csv`;
@@ -223,7 +225,7 @@ function parseHit(src) {
   // Comment: prefer translated (English) PII-redacted text
   const comment = src.TranslatedTextPiiRedacted || src.OriginalTextPiiRedacted
     || src.TranslatedText || src.OriginalText || src.CustomerVerbatimOriginal || '';
-  if (!comment && !includeBlankFlag) return null;
+  if (!comment && !includeStructured) return null;
 
   const language = src.OriginalTextLanguage || '';
 
@@ -384,6 +386,7 @@ async function extractViaAPI(page, capturedQuery, capturedHeaders) {
   }
 
   const allItems = [];
+  let structuredOnlyCount = 0;
   let total = null;
   let searchAfter = null;
   let pageNum = 0;
@@ -462,7 +465,11 @@ async function extractViaAPI(page, capturedQuery, capturedHeaders) {
       const src = hit._source;
       if (!src) continue;
       const item = parseHit(src);
-      if (item) allItems.push(item);
+      if (item) {
+        allItems.push(item);
+      } else {
+        structuredOnlyCount++;
+      }
     }
 
     pageNum++;
@@ -723,6 +730,16 @@ async function main() {
     console.log('\n--- Extraction Complete ---');
     console.log(`Config: ${config.name}`);
     console.log(`Items:  ${results.length}`);
+    if (structuredOnlyCount > 0 && !includeStructured) {
+      console.log(`Scope:  Verbatim-only (${structuredOnlyCount} structured-only submissions excluded; use --include-structured to include them)`);
+    } else if (includeStructured && structuredOnlyCount === 0) {
+      console.log(`Scope:  All submissions (no structured-only items found)`);
+    }
+    const verbatimCount = results.filter(r => r.comment).length;
+    const structuredCount = results.length - verbatimCount;
+    if (includeStructured && structuredCount > 0) {
+      console.log(`Scope:  ${verbatimCount} with verbatim + ${structuredCount} structured-only`);
+    }
     console.log(`Output: ${outputPath}`);
     if (dateArg) console.log(`Filter: --date ${dateArg}`);
     if (results.length > 0) {
@@ -751,10 +768,14 @@ async function main() {
 
       console.log('\n--- Summary (aggregate stats, no customer content) ---');
       console.log(`Items:      ${results.length}`);
-      if (includeBlankFlag) {
+      if (includeStructured) {
         const withVerbatim = results.filter(r => r.comment).length;
         const blank = results.length - withVerbatim;
-        console.log(`Verbatims:  ${withVerbatim} with text, ${blank} blank (${Math.round(blank / results.length * 100)}% blank)`);
+        console.log(`Verbatims:  ${withVerbatim} with text, ${blank} structured-only (${Math.round(blank / results.length * 100)}% blank)`);
+      } else if (structuredOnlyCount > 0) {
+        const totalSubmissions = results.length + structuredOnlyCount;
+        const verbatimPct = Math.round(results.length / totalSubmissions * 100);
+        console.log(`Scope:      Verbatim-only (${results.length} of ${totalSubmissions} total submissions, ${verbatimPct}%). Sentiment metrics may differ from OCV Discover reports.`);
       }
       const summaryDates = results.map(r => r.date).filter(Boolean);
       if (summaryDates.length > 0) {

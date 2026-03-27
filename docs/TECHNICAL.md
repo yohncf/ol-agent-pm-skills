@@ -24,7 +24,7 @@ The `npm run check` command validates Node.js version, Playwright, Edge, config 
 
 No browser downloads needed — the script uses your installed Edge binary.
 
-**First-time config:** Either create a config manually (see [Config Format](#config-format)) or use the Claude Code / Copilot CLI setup wizard:
+**First-time config:** Either create a config manually (see [Config Format](#config-format)) or use the Copilot CLI setup wizard:
 
 ```
 /setup-ocv
@@ -202,7 +202,7 @@ The ISP whitelist (`scripts/isp_whitelist.json`) contains ~55 public consumer IS
 
 ## AI Assistant Integration
 
-The project includes skills that work in both **Claude Code** and **GitHub Copilot CLI**:
+The project includes skills that work in **GitHub Copilot CLI**:
 
 | Skill | What it does |
 |-------|-------------|
@@ -237,9 +237,7 @@ Per the E+D Data Use Guidance (March 2026), AI assistants report only aggregate 
 | File | Purpose |
 |------|---------|
 | `scripts/extract_standalone.js` | Main CLI extraction script |
-| `scripts/analyze_local.js` | Local LLM analysis via Ollama (optional) |
 | `scripts/ods_extract.js` | ODS Sara ticket extraction (POC) |
-| `scripts/ods_summarize.js` | ODS chat summarization via local LLM |
 | `scripts/preflight.js` | Dependency checker (`npm run check`) |
 | `scripts/lib/csv_parser.js` | Shared RFC 4180 CSV parser |
 | `scripts/isp_whitelist.json` | Tier 1 ISP whitelist for provider identification |

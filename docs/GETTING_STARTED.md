@@ -54,7 +54,7 @@ You have two options:
 
 #### Option A: Guided setup with AI assistant (recommended)
 
-If you have **GitHub Copilot CLI** or **Claude Code**, say:
+If you have **GitHub Copilot CLI**, say:
 
 ```
 setup ocv for my area
@@ -135,7 +135,7 @@ npm run extract:accounts     # Yesterday's Accounts feedback
 npm run extract:7d           # Last 7 days
 ```
 
-### With AI assistant (Copilot CLI or Claude Code)
+### With AI assistant (GitHub Copilot CLI)
 
 ```
 extract ocv yesterday <your-area>
@@ -193,7 +193,7 @@ analyze the accounts feedback from last week
 This gives you:
 - **Aggregate stats** — sentiment, intent, category distributions
 - **Theme discovery** — top recurring issues with estimated counts
-- **Category gap analysis** — suggestions for new categories with regex patterns
+- **Category gap analysis** — suggestions for new categories based on uncategorized items
 - **High-value flagging** — row numbers of the most actionable feedback
 - **Executive summary** — TL;DR for stakeholders
 

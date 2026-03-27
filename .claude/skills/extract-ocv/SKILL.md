@@ -37,6 +37,8 @@ Extract two values from the user's prompt:
    cd <project-root> && node scripts/extract_standalone.js --config "configs/<area-name>.json" --date <filter> --summary "data/<output-file>"
    ```
 
+   **Optional flag:** `--include-structured` — includes feedback submissions without verbatim text (thumbs up/down only). By default, these are excluded. Use this flag when you need sentiment metrics comparable to the OCV Discover dashboard.
+
 6. **If the extraction fails** (browser timeout, SSO redirect stuck, page didn't load, or 0 items returned), automatically retry:
    - Delete the browser profile: `Remove-Item -Recurse -Force "<project-root>/.browser-profile"`
    - Rerun the same extraction command
@@ -63,6 +65,24 @@ Extract two values from the user's prompt:
 | Noise | "true" if matched a noise pattern; empty otherwise |
 | AreaPath | OCV area hierarchy (pipe-delimited) |
 
-## COMPLIANCE NOTE
+## COMPLIANCE
 
-OCV verbatim feedback is **Customer Content** per E+D Data Use Guidance (March 2026). Do NOT read, analyze, or quote content from CSV files in `data/`. Only report the aggregate summary stats printed by `--summary`.
+This skill processes **Customer Content**. Only use with **GitHub Copilot CLI** (backed by AOAI/Anthropic models). Do not use with Claude Code.
+
+OCV verbatim feedback is Customer Content per E+D Data Use Guidance (March 2026). When running in Copilot CLI, you may analyze extracted data. Only report aggregate summary stats printed by `--summary` unless the user explicitly asks for verbatim analysis.
+
+## Context: Where OCV fits in the feedback ecosystem
+
+OCV captures **passive qualitative feedback** — what users voluntarily share about their experience. Key sources:
+
+| Source | Volume | What it captures |
+|--------|--------|------------------|
+| Send a Smile / Frown | Largest | Free-text feedback with sentiment |
+| Copilot thumbs up/down | Growing | Copilot response quality signals |
+| NPS / Floodgate | Periodic | Prompted satisfaction scores + optional verbatim |
+| App Store reviews | External | Public reviews from Microsoft Store, Google Play |
+| Feedback Hub / Forums | Community | Structured bug reports and feature requests |
+
+**Coverage:** OCV captures <1% of MAU. It's the richest qualitative signal but represents self-selected, vocal users (skews toward dissatisfied). Complement with telemetry for quantitative reach.
+
+**Companion channel:** ODS captures the **support ticket path** — users who actively seek help. The two channels are linked via `DiagnosticSessionId`, enabling cross-referencing between feedback and support data. Use the `extract-ods` skill for ODS data.
