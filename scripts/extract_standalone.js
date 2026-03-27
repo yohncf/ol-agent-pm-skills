@@ -181,7 +181,7 @@ const OFFSET_MAP = {
   'all': { relDateType: 'all', offset: 0 },
 };
 
-const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Category,Language,Noise,AreaPath,Client,Rating';
+const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Scenario,Category,Language,Noise,AreaPath,Client,Rating';
 
 // --- CSV Helpers ---
 
@@ -279,6 +279,9 @@ function parseHit(src) {
   // Client: normalize Platform field into standard buckets
   let client = '';
   const platform = (src.Platform || '').toLowerCase();
+
+  // Scenario: raw FeatureName from OCV (the featureArea used in the query)
+  const scenario = src.FeatureName || '';
   if (/windows\s*desktop|win32|win64/.test(platform)) client = 'Desktop';
   else if (/\bweb\b|owa|browser/.test(platform)) client = 'OWA';
   else if (/\bmac\b|macos|osx/.test(platform)) client = 'Mac';
@@ -298,6 +301,7 @@ function parseHit(src) {
     sentiment,
     intent,
     feature: features.join('|'),
+    scenario,
     category: categorizeComment(comment),
     language,
     noise: detectNoise(comment),
@@ -700,7 +704,7 @@ async function main() {
     // Step 8: Write CSV
     const rows = results.map(item =>
       [item.date, item.comment, item.provider, item.sentiment, item.intent,
-       item.feature, item.category, item.language, item.noise, item.areaPath || '', item.client || '', item.rating || '']
+       item.feature, item.scenario || '', item.category, item.language, item.noise, item.areaPath || '', item.client || '', item.rating || '']
         .map(csvEscape).join(',')
     );
     const csv = [CSV_HEADER, ...rows].join('\n');
