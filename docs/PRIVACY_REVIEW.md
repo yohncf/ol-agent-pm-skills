@@ -243,13 +243,13 @@ The E+D Data Use Guidance (effective March 3, 2026) states: "Claude Code cannot 
 | Run the extraction script | Skill rewrite (no Bash tool) | Orchestrates Customer Content extraction |
 | Read CSV files in `data/` | `.claudeignore` + skill rewrite | CSV contains Customer Content (verbatim feedback) |
 | Read extraction stdout containing customer text | Skill rewrite (no Bash tool) | Stdout may contain customer text in non-summary mode |
-| Analyze or summarize feedback content | `.claudeignore` + CLAUDE.md instructions | Customer Content |
+| Analyze or summarize feedback content | `.claudeignore` + AGENTS.md instructions | Customer Content |
 
 ### Guardrails
 
 1. **`.claudeignore`** blocks `data/`, `*.csv`, and `.browser-profile/` from Claude Code file access.
 2. **Skill definitions** (`extract-ocv`, `setup-ocv`) have `Bash` removed from `allowed-tools`.
-3. **`CLAUDE.md`** contains explicit instructions not to run extractions or read output.
+3. **`AGENTS.md`** contains explicit instructions that only GitHub Copilot CLI (backed by AOAI/Anthropic) is approved for customer data analysis. Claude Code is not approved.
 4. **`--summary` flag** on the extraction script prints only aggregate statistics (counts, distributions) to stdout, never customer verbatim text. This lets users get feedback without involving AI tools.
 
 ---

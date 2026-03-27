@@ -54,7 +54,7 @@ You have two options:
 
 #### Option A: Guided setup with AI assistant (recommended)
 
-If you have **GitHub Copilot CLI** or **Claude Code**, say:
+If you have **GitHub Copilot CLI**, say:
 
 ```
 setup ocv for my area
@@ -135,7 +135,7 @@ npm run extract:accounts     # Yesterday's Accounts feedback
 npm run extract:7d           # Last 7 days
 ```
 
-### With AI assistant (Copilot CLI or Claude Code)
+### With AI assistant (GitHub Copilot CLI)
 
 ```
 extract ocv yesterday <your-area>

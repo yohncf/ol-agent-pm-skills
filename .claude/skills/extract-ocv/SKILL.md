@@ -37,6 +37,8 @@ Extract two values from the user's prompt:
    cd <project-root> && node scripts/extract_standalone.js --config "configs/<area-name>.json" --date <filter> --summary "data/<output-file>"
    ```
 
+   **Optional flag:** `--include-structured` — includes feedback submissions without verbatim text (thumbs up/down only). By default, these are excluded. Use this flag when you need sentiment metrics comparable to the OCV Discover dashboard.
+
 6. **If the extraction fails** (browser timeout, SSO redirect stuck, page didn't load, or 0 items returned), automatically retry:
    - Delete the browser profile: `Remove-Item -Recurse -Force "<project-root>/.browser-profile"`
    - Rerun the same extraction command
@@ -63,6 +65,8 @@ Extract two values from the user's prompt:
 | Noise | "true" if matched a noise pattern; empty otherwise |
 | AreaPath | OCV area hierarchy (pipe-delimited) |
 
-## COMPLIANCE NOTE
+## COMPLIANCE
 
-OCV verbatim feedback is **Customer Content** per E+D Data Use Guidance (March 2026). Do NOT read, analyze, or quote content from CSV files in `data/`. Only report the aggregate summary stats printed by `--summary`.
+This skill processes **Customer Content**. Only use with **GitHub Copilot CLI** (backed by AOAI/Anthropic models). Do not use with Claude Code.
+
+OCV verbatim feedback is Customer Content per E+D Data Use Guidance (March 2026). When running in Copilot CLI, you may analyze extracted data. Only report aggregate summary stats printed by `--summary` unless the user explicitly asks for verbatim analysis.

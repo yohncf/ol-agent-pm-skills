@@ -19,6 +19,8 @@ Determine:
   - `full` — Run all analysis sections
   - `themes` — Theme discovery only
   - `categories` — Category gap analysis only
+  - `categorize` — AI-assisted categorization (reclassify items using LLM instead of regex)
+  - `validate` — Validate regex categories (sample items, dominance warnings, conflicts)
   - `flags` — Flag high-value verbatim only
   - `summary` — Executive summary only
   - `compare` — Compare two CSV files (requires two paths)
@@ -101,6 +103,30 @@ When suggesting new categories, also output them as ready-to-paste JSON for the 
 }
 ```
 
+### 9. AI-assisted categorization (analysis-type: `categorize`)
+
+When the user asks to categorize or reclassify feedback using AI:
+
+1. **Load categories** from the config file in `configs/`. These define the taxonomy.
+2. **Read all items** from the CSV (Comment column).
+3. **Batch items** in groups of 50-100 for categorization.
+4. **For each batch**, classify each item into one of the config-defined categories (or "Uncategorized" if none fit). Output format per item: `row_number|category|confidence|one_sentence_reason`
+5. **Write results** to a new CSV with an added `AI_Category` column alongside the original `Category` (regex) column.
+6. **Show comparison**: how many items changed category, what categories grew/shrank, and % agreement between regex and AI.
+7. **Save** the updated CSV as `<original>_ai_categorized.csv`.
+
+AI categorization is slower than regex but produces higher accuracy (based on user testing: regex had 78% false positives in some categories and 65% uncategorized tail).
+
+### 10. Category validation (analysis-type: `validate`)
+
+When the user asks to validate categories, run these checks on the regex-categorized CSV:
+
+1. **Sample display**: For each category, show 3-5 sample Comment texts. Let the user eyeball whether the regex is matching correctly.
+2. **Uncategorized clustering**: If >20% of items are uncategorized, sample 30-50 of them, identify 3-5 keyword clusters, and suggest new categories.
+3. **Pattern dominance warning**: For each category, check if a single regex pattern accounts for >60% of matches. If so, flag it — the category may be too narrow or the pattern too greedy.
+4. **Multi-category conflict detection**: Find items that would match multiple categories if first-match-wins weren't enforced. Show overlap counts between category pairs.
+5. **Coverage summary table**: Show each category with count, % of total, top matching pattern, and a quality flag (✅ looks good, ⚠️ check samples, 🔴 high false-positive risk).
+
 ## Tone and voice
 
 Write as a PM reporting to your team. This is critical — follow these rules in all output:
@@ -128,3 +154,7 @@ When comparing two CSVs (e.g., week-over-week):
 
 Check `configs/` in the project root for the area config that was used for extraction.
 The config contains existing categories, feature tags, and noise patterns that provide context for the analysis.
+
+## COMPLIANCE
+
+This skill processes **Customer Content**. Only use with **GitHub Copilot CLI** (backed by AOAI/Anthropic models). Do not use with Claude Code.

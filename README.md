@@ -47,7 +47,7 @@ Short version:
    ```
    This checks that everything is installed. All items should show ✅.
 
-4. **Create your config** — tell the tool which OCV area to pull from. In GitHub Copilot CLI or Claude Code, just say:
+4. **Create your config** — tell the tool which OCV area to pull from. In GitHub Copilot CLI, just say:
    > "set up OCV for my area"
 
    The assistant walks you through it. No code editing needed.
@@ -58,7 +58,7 @@ Short version:
 
 ### With an AI assistant (recommended)
 
-If you use **GitHub Copilot CLI** or **Claude Code**, just talk to it:
+If you use **GitHub Copilot CLI**, just talk to it:
 
 > "Extract OCV feedback for yesterday"
 >
@@ -94,13 +94,21 @@ This pulls yesterday's feedback and prints a summary. Open the CSV in Excel for 
 After extracting data, ask the assistant to analyze it:
 
 > "Analyze the accounts feedback"
+>
+> "Categorize the feedback using AI"
+>
+> "Validate my regex categories"
 
-You get:
+The AI assistant reads the CSV directly and provides:
 
 - **Top themes** — the 10 most common issues customers are reporting
+- **AI categorization** — reclassify items using LLM instead of regex (higher accuracy, handles ambiguity)
+- **Category validation** — sample items per category, dominance warnings, conflict detection
 - **Category suggestions** — new categories to add to your config, with ready-to-paste patterns
 - **High-value feedback** — row numbers of the most actionable items (specific errors, competitor mentions, impact descriptions)
 - **Executive summary** — a TL;DR you can paste into a status update
+
+No additional software or local models required. Analysis runs through the same AI assistant you use for extraction.
 
 ---
 

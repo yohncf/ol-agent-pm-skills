@@ -9,7 +9,6 @@
     "extract": "node scripts/extract_standalone.js",
     "extract:accounts": "node scripts/extract_standalone.js --config configs/accounts.json --date yesterday --summary",
     "extract:7d": "node scripts/extract_standalone.js --config configs/accounts.json --date 7d --summary",
-    "analyze": "node scripts/analyze_local.js",
     "check": "node scripts/preflight.js"
   },
   "dependencies": {

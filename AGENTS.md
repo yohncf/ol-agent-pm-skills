@@ -1,19 +1,22 @@
 # OCV Extraction — Project Instructions
 
+> **⚠️ Approved AI tool: GitHub Copilot CLI only.**
+> This repo processes **Customer Content** (OCV verbatim feedback, ODS ticket data). Per E+D Data Use Guidance (March 2026), only AI tools backed by AOAI or Anthropic models via GitHub Copilot may analyze this data. **Claude Code is not approved** for customer data processing. If you are using Claude Code, do not run extraction or analysis skills against customer data.
+
 ## Data Use Compliance
 
-OCV verbatim feedback is **Customer Content**. Per the updated E+D Data Use Guidance (March 2026), AI tools may analyze this data for product insights.
-
-- AI assistants **may** read and analyze CSV files in `data/` for theme discovery, categorization, and summarization.
+- AI assistants **may** read and analyze CSV files in `data/` for theme discovery, categorization, and summarization — **only via GitHub Copilot CLI**.
 - AI assistants **may** edit source code, configs, and docs in this repo.
 - AI assistants **may** create config files via `setup-ocv`.
-- Extracted data stays local (no external APIs). Cloud AI assistants (Claude, Copilot) access files only within the session.
+- Extracted data stays local. The AI assistant accesses files only within the session.
+- Analysis is powered by the AI assistant's model (no local SLM required). The `ocv-analyze` skill reads CSVs directly.
 
 ### Skills
 
 | Skill | What it does |
 |-------|-------------|
-| `extract-ocv` | Runs the extraction script with date filtering and config resolution |
+| `extract-ocv` | Runs the OCV extraction script with date filtering and config resolution |
+| `extract-ods` | Extracts ODS Sara ticket data via REST API (no browser needed) |
 | `ocv-analyze` | Reads extracted CSVs for theme discovery, category suggestions, and executive summaries |
 | `setup-ocv` | Walks you through creating a config file for your area |
 
@@ -53,40 +56,58 @@ Daily extractions go to `data/ocv_<area>_YYYY-MM-DD.csv`. Ad hoc runs with longe
 
 ## ODS Ticket Extraction
 
-The `ods_batch_extract.js` script extracts Tags and Problem Statement from ODS Sara tickets in bulk.
+Two methods available. **Prefer the API method** — it's 7× faster and requires no browser.
+
+### Method 1: Direct API (recommended)
 
 ```bash
-# Extract first 20 tickets from a CSV of URLs
-node scripts/ods_batch_extract.js --input data/input.csv --limit 20
+# Extract from a CSV of ODS ticket URLs
+python scripts/ods_api_extract.py --input data/ticket_urls.csv
 
-# Resume from offset, append to existing output
-node scripts/ods_batch_extract.js --input data/input.csv --offset 20 --append
+# With extended fields (Tags, TicketTier, OCVArea)
+python scripts/ods_api_extract.py --input data/ticket_urls.csv --fields all
 
-# Custom output file
-node scripts/ods_batch_extract.js --input data/urls.csv --output data/results.csv
+# Resume from offset
+python scripts/ods_api_extract.py --input data/ticket_urls.csv --offset 200 --append
 ```
 
 **Key details:**
-- Reuses a single Playwright browser session (persistent profile at `.browser-profile-ods`) for SSO passthrough
-- Auto-restarts browser on context crash (SSO times out after ~45 min / ~320 tickets)
-- Input CSV: no header, URL in last column (or a single-column URL list)
-- Output CSV: `TicketId,Date,Category,Tags,ProblemStatement,URL`
-- ~8.5 seconds per ticket
+- Auth via `DefaultAzureCredential` (uses `az login`) — no browser, no SSO
+- ~0.9 tickets/sec, token auto-refreshes
+- Requires: `pip install azure-identity`
+- Input: CSV with ODS ticket URLs or IDs in last column
+- Output: `TicketId,ProblemStatement,Symptom,DataClassification,UserLocale,ProductName,URL` (+ Tags, TicketTier, EntitlementGroup, OCVArea with `--fields all`)
 
-**Data files:**
-- `data/ods_final_700.csv` — Complete extraction of 700 Gmail ODS tickets (Mar 12, 2026)
-- `data/gmail ods feedback 3.12.csv` — Original input file (700 ODS ticket URLs)
+### Method 2: Browser-based (legacy)
+
+```bash
+node scripts/ods_batch_extract.js --input data/input.csv --limit 20
+```
+
+- Requires Playwright + Edge + manual SSO login
+- ~8.5 seconds per ticket, SSO times out after ~45 min
+- Use only when API method is unavailable
+
+### Generating sample URLs from Kusto
+
+```bash
+python scripts/generate_sample_urls.py --sample-size 600 --days 30
+```
+
+Queries Kusto for Cloud Cache support sessions, takes a stratified random sample by AccountType, and outputs ODS URLs. Requires: `pip install azure-kusto-data azure-identity`
 
 ## Key Files
 
-- `scripts/extract_standalone.js` — Main CLI script (Node.js + Playwright + Elasticsearch API)
-- `scripts/analyze_local.js` — Local LLM analysis via Ollama (optional)
+- `scripts/extract_standalone.js` — OCV extraction (Node.js + Playwright + Elasticsearch API)
+- `scripts/ods_api_extract.py` — ODS ticket extraction via REST API (Python, no browser)
+- `scripts/ods_batch_extract.js` — ODS ticket extraction via browser (legacy, Playwright)
+- `scripts/generate_sample_urls.py` — Kusto query + stratified sampling for ODS tickets
 - `scripts/preflight.js` — Dependency checker (`npm run check`)
 - `scripts/lib/csv_parser.js` — Shared RFC 4180 CSV parser
 - `scripts/isp_whitelist.json` — Tier 1 ISP whitelist for provider identification (~55 providers)
 - `configs/` — Area config files (`_template.json` for new setups)
 - `data/` — Extracted CSV output (daily snapshots, git-ignored)
-- `.claude/skills/` — AI assistant skill definitions (work in Claude Code and Copilot CLI)
-- `README.md` — Full technical documentation
+- `.claude/skills/` — AI assistant skill definitions (work in GitHub Copilot CLI)
+- `README.md` — User-facing documentation
 - `docs/GETTING_STARTED.md` — Quick start guide for new users
 - `docs/PRIVACY_REVIEW.md` — Formal privacy and data handling review

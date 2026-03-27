@@ -88,19 +88,6 @@ check('Output directory (data/)', () => {
   return csvFiles.length > 0 ? `${csvFiles.length} existing CSV files` : 'empty (ready)';
 });
 
-// 6. Ollama (optional, for analyze_local.js)
-checkOptional('Ollama (for local AI analysis)', () => {
-  try {
-    execSync('ollama --version', { stdio: 'pipe', timeout: 5000 });
-    return 'installed';
-  } catch {
-    // Check known install path on Windows
-    const ollamaPath = process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'Ollama', 'ollama.exe');
-    if (ollamaPath && fs.existsSync(ollamaPath)) return 'installed (not in PATH)';
-    throw new Error('Not installed. Only needed for "npm run analyze". Install from https://ollama.com');
-  }
-});
-
 // Summary
 console.log('\n' + '─'.repeat(45));
 if (failed === 0) {
