@@ -117,3 +117,30 @@ The `--offset` flag skips the first N tickets. Use `--append` to add to the exis
 ## Data use compliance
 
 ODS ticket data is **Customer Content**. Per the E+D Data Use Guidance, AI assistants running through Copilot CLI (AOAI/Anthropic models) may analyze this data for product insights. Extracted data stays local.
+
+## Context: Where ODS fits in the support flow
+
+ODS captures the **support ticket path** — users who go beyond passive feedback and actively seek help. The flow:
+
+1. **User entry points** — In-app Support, Chat Support, Toggle Out feedback, M365 Admin Center, Services Hub, Phone/Email
+2. **Deflection** — Self-help articles, diagnostic tools, automated suggestions
+3. **ODS ticket created** — If deflection fails, a DiagnosticSession is created with consent, data collectors, and diagnostic info
+4. **Sara chat** — AI-assisted support agent attempts resolution
+5. **Escalation** — If Sara can't resolve: In-app Support Agents (vendors) → QA → Feature Crews → On-call Engineers
+
+ODS and OCV are linked via `DiagnosticSessionId` — the same user action can produce both a support ticket (ODS) and a feedback entry (OCV), enabling cross-referencing.
+
+### Monarch-specific entry points
+
+| Entry Point | DataClassification | Symptom | What it captures |
+|-------------|-------------------|---------|------------------|
+| Toggle Out Feedback | Feedback | ToggleFeedback | User switched back to classic Outlook |
+| General Feedback | Feedback | givefeedback_general | Send a Smile/Frown |
+| Copilot Chat Feedback | Feedback | CopilotChatFeedback | Thumbs up/down on Copilot responses |
+| Copilot Compose | Feedback | CopilotCompose | Feedback on Copilot-generated drafts |
+| Contact Support | Troubleshooting | RecoveryAndContactSupport | User sought help via Help pane |
+| Recovery | Recovery | RecoveryAndContactSupport | Automated recovery flow |
+| Discover Feed | Feedback | DiscoverFeedFeedback | Feedback on Discover feed content |
+| Suggestions | Feedback | SuggestionsQueryResult | Feedback on search/suggestion quality |
+
+**Note:** `Symptom` is a free-form string, not a fixed enum. New values appear without schema changes. Always check the actual data for the latest values.

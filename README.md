@@ -1,18 +1,25 @@
-# OCV Feedback Extraction
+# OCV & ODS Feedback Extraction
 
 ## What is this?
 
-A tool that pulls customer feedback from [OCV](https://ocv.microsoft.com) into a clean Excel-ready CSV. It grabs what customers actually wrote, along with sentiment, language, and issue categories — all with personal info scrubbed out automatically.
+A tool that pulls customer feedback from **OCV** (verbatim feedback) and **ODS** (support tickets) into clean, Excel-ready CSVs. It grabs what customers actually wrote, along with sentiment, language, issue categories, and support context — all with personal info scrubbed out automatically.
 
-**Why it exists:** OCV's built-in export gives you metadata but not the actual verbatim feedback in a structured format. This tool fills that gap.
+**Two data channels, one toolkit:**
 
-**Who it's for:** PMs on Outlook (or any team using OCV) who want to analyze customer feedback at scale.
+| Channel | What it captures | Source | Coverage |
+|---------|-----------------|--------|----------|
+| **OCV** (Open Customer Voice) | Verbatim feedback: Send a Smile/Frown, NPS, Copilot thumbs, app store reviews | In-app feedback prompts | <1% MAU — small but richest qualitative signal |
+| **ODS** (Office Diagnostic Sessions) | Support tickets: problem statements, diagnostic data, Sara chat transcripts | Help → Contact Support flow | <<1% MAU — captures users who actively seek help |
+
+**Why it exists:** OCV's built-in export gives you metadata but not the actual verbatim feedback in a structured format. ODS has no export at all — you'd have to open each ticket manually. This tool fills both gaps.
+
+**Who it's for:** PMs on Outlook (or any team using OCV/ODS) who want to analyze customer feedback and support patterns at scale.
 
 ---
 
 ## What you get
 
-A CSV file you can open in Excel with these columns:
+### OCV extraction → CSV
 
 | Column | What it tells you |
 |--------|-------------------|
@@ -25,6 +32,27 @@ A CSV file you can open in Excel with these columns:
 | **Date** | When the feedback was submitted |
 
 Plus: Feature tags, Noise flags, and OCV Area Path for filtering.
+
+### ODS extraction → CSV
+
+| Column | What it tells you |
+|--------|-------------------|
+| **ProblemStatement** | What the user described when seeking help |
+| **Symptom** | Entry point (e.g., ToggleFeedback, RecoveryAndContactSupport, CopilotChatFeedback) |
+| **DataClassification** | Feedback, Troubleshooting, Recovery, or DiagnosticOnly |
+| **Tags** | Clean semicolon-separated issue tags |
+| **TicketTier** | Agent tier (e.g., OlkEndUserChat confirms actual chat with support) |
+| **UserLocale** | Language/region (e.g., en-US, ja, de) |
+
+### AI analysis → Insights
+
+After extraction, the AI assistant produces analysis outputs including:
+
+- **Topic distribution** — ranked themes with counts and percentages (e.g., "Contacts/People: 22%, Sync/Missing Emails: 20%")
+- **Cross-tab analysis** — topic breakdown by segment (account type, language, provider) to spot where issues concentrate
+- **Sentiment by topic** — which themes drive the most negative feedback
+- **Executive summary** — TL;DR with top 3 recommended actions, formatted for status updates
+- **Category validation** — sample items per category, balance checks, ambiguity detection
 
 ---
 
@@ -60,15 +88,26 @@ Short version:
 
 If you use **GitHub Copilot CLI**, just talk to it:
 
+**OCV feedback:**
 > "Extract OCV feedback for yesterday"
 >
 > "Pull last 7 days of feedback"
+
+**ODS tickets:**
+> "Extract ODS support tickets for Cloud Cache"
 >
+> "Sample 600 Cloud Cache tickets from the last 30 days"
+
+**Analysis:**
 > "Analyze the feedback from last week"
 >
 > "What are the top themes in the last 30 days of feedback?"
+>
+> "Break down topics by account type"
+>
+> "Categorize the feedback using AI"
 
-The assistant handles file paths, date math, and output formatting for you.
+The assistant handles file paths, date math, sampling, and output formatting for you.
 
 ### Without an AI assistant
 
@@ -98,15 +137,21 @@ After extracting data, ask the assistant to analyze it:
 > "Categorize the feedback using AI"
 >
 > "Validate my categories"
+>
+> "Break down topics by account type"
+>
+> "Show sentiment breakdown by topic"
 
 The AI assistant reads the CSV directly and provides:
 
-- **Top themes** — the 10 most common issues customers are reporting
-- **AI categorization** — classify items using LLM based on your config-defined taxonomy (handles ambiguity, no manual tuning)
-- **Category validation** — sample items per category, balance checks, ambiguity detection
-- **Category suggestions** — new categories to add to your config, with ready-to-paste patterns
+- **Top themes** — the 10 most common issues ranked by volume (e.g., "Contacts/People: 22%, Sync/Missing Emails: 20%, Send/Receive: 17%")
+- **AI categorization** — classify items using LLM based on your config-defined taxonomy. Handles ambiguity, multi-language input, and edge cases without manual tuning
+- **Cross-tab analysis** — break down topics by segment (account type, provider, language) to spot where issues concentrate. Flags over/under-represented themes per segment
+- **Sentiment by topic** — shows which themes drive the most negative feedback vs. balanced/positive sentiment
+- **Category validation** — sample items per category, balance checks, ambiguity detection, coverage summary
+- **Category suggestions** — new categories to add to your config, with ready-to-paste JSON
 - **High-value feedback** — row numbers of the most actionable items (specific errors, competitor mentions, impact descriptions)
-- **Executive summary** — a TL;DR you can paste into a status update
+- **Executive summary** — a TL;DR with top 3 recommended actions, formatted for status updates
 
 No additional software or local models required. Analysis runs through the same AI assistant you use for extraction.
 
@@ -114,9 +159,9 @@ No additional software or local models required. Analysis runs through the same 
 
 ## How authentication works
 
-The first time you run an extraction, Edge opens and asks you to sign in with your Microsoft account. Do that once — after that, it remembers your login and runs automatically.
+**OCV extraction** (browser-based): The first time you run an extraction, Edge opens and asks you to sign in with your Microsoft account. Do that once — after that, it remembers your login and runs automatically. If authentication stops working (e.g., after a password change), the tool clears its cache and asks you to sign in again.
 
-If authentication stops working (e.g., after a password change), the tool clears its cache and asks you to sign in again.
+**ODS extraction** (API-based): Uses your Azure CLI login (`az login`). No browser needed, no SSO timeouts. Token auto-refreshes.
 
 ---
 
@@ -134,11 +179,13 @@ If authentication stops working (e.g., after a password change), the tool clears
 Each product area gets its own config file that defines:
 
 - **Which OCV data to pull** (your filtered OCV URL)
-- **Issue categories** (keyword patterns like "sign-in", "sync", "password")
+- **Issue categories** with descriptions (the AI uses these to classify feedback semantically)
 - **Feature tags** (which OCV tags matter for your area)
 - **Noise patterns** (spam, test entries, off-topic feedback)
 
 Start with the guided setup (ask the AI assistant "set up OCV for my area"), or copy `configs/_template.json` and edit it manually. The [Getting Started guide](docs/GETTING_STARTED.md) walks through both options.
+
+For **ODS extraction**, the sampling script is currently configured for Cloud Cache support tickets. To adapt for other areas, modify the Kusto query in `scripts/generate_sample_urls.py`.
 
 ---
 
@@ -147,9 +194,11 @@ Start with the guided setup (ask the AI assistant "set up OCV for my area"), or 
 | Problem | What to do |
 |---------|-----------|
 | Not sure if setup is correct | Run `npm run check` — it tells you what's missing |
-| Edge doesn't open / login stuck | Delete the `.browser-profile` folder and try again |
-| No feedback extracted | Check that your OCV URL shows results when you open it in a browser |
-| Categories aren't matching | The AI assistant can suggest new categories — ask "analyze the feedback" |
+| Edge doesn't open / login stuck (OCV) | Delete the `.browser-profile` folder and try again |
+| No feedback extracted (OCV) | Check that your OCV URL shows results when you open it in a browser |
+| Categories aren't matching | Ask the AI assistant to "validate my categories" or "recategorize using AI" |
+| ODS extraction fails | Run `az login` to refresh credentials. Check `az account show` for active session |
+| ODS tickets returning empty | Verify the ticket IDs exist in ODS portal. Some old sessions are purged |
 
 ---
 

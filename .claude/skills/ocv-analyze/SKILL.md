@@ -21,6 +21,8 @@ Determine:
   - `categories` — Category gap analysis only
   - `categorize` — AI-powered categorization (classify items using LLM based on config-defined taxonomy)
   - `validate` — Validate assigned categories (sample items, dominance warnings, conflicts)
+  - `crosstab` — Break down topics by a segment dimension (account type, provider, language)
+  - `sentiment` — Sentiment breakdown by topic (which themes drive the most negative feedback)
   - `flags` — Flag high-value verbatim only
   - `summary` — Executive summary only
   - `compare` — Compare two CSV files (requires two paths)
@@ -64,6 +66,26 @@ If uncategorized items exceed 20% of total:
 - Suggest 3-6 new category names with descriptions
 - Format each as: Category name, description, estimated count
 - Reference the existing categories from the config file in `configs/`
+
+### 5a. Cross-tab analysis (analysis-type: `crosstab`)
+
+Break down themes by a segment dimension. The user specifies which dimension to cross-tab by (e.g., account type, provider, language). For each:
+
+1. **Build a matrix**: rows = top themes, columns = segment values
+2. **Show counts and percentages** per cell
+3. **Highlight over/under-representation**: if a theme's share in one segment differs from overall by >5 percentage points, flag it
+4. **Insight summary**: 2-3 sentences on what the cross-tab reveals (e.g., "Commercial accounts overrepresent Sync issues; Consumer accounts overrepresent Contacts problems")
+
+Present as a table. This helps identify whether different user segments have different pain points.
+
+### 5b. Sentiment by topic (analysis-type: `sentiment`)
+
+For each top theme, show the sentiment breakdown:
+
+1. **Calculate**: % Negative, % Neutral, % Positive per theme
+2. **Present as a table** with themes as rows and sentiment as columns
+3. **Flag hotspots**: themes with >70% Negative sentiment are highlighted as most emotionally charged
+4. **Insight**: which topics drive the most negative feedback, and which have balanced sentiment (may indicate feature requests rather than problems)
 
 ### 6. Flag high-value verbatim
 
