@@ -1,10 +1,9 @@
 # Dependencies
 node_modules/
 
-# Extracted data (customer content — do not commit)
-data/*.csv
-data/*.json
-data/*.png
+# Extracted data and analysis outputs (customer content — do not commit)
+data/*
+!data/.gitkeep
 
 # Browser profiles (SSO cookies)
 .browser-profile/
