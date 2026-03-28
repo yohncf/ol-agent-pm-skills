@@ -183,7 +183,7 @@ const OFFSET_MAP = {
   'all': { relDateType: 'all', offset: 0 },
 };
 
-const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Scenario,Category,Language,Noise,AreaPath,Client,Rating';
+const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Scenario,Category,Language,Noise,AreaPath,Client,Rating,OcvId';
 
 // --- CSV Helpers ---
 
@@ -221,7 +221,7 @@ function resolveProvider(email) {
   return domainMap[domain] || REDACTED_LABEL;
 }
 
-function parseHit(src) {
+function parseHit(src, ocvId) {
   // Comment: prefer translated (English) PII-redacted text
   const comment = src.TranslatedTextPiiRedacted || src.OriginalTextPiiRedacted
     || src.TranslatedText || src.OriginalText || src.CustomerVerbatimOriginal || '';
@@ -310,6 +310,7 @@ function parseHit(src) {
     areaPath,
     client,
     rating: feedbackType || String(rating),
+    ocvId: ocvId || '',
   };
 }
 
@@ -464,7 +465,7 @@ async function extractViaAPI(page, capturedQuery, capturedHeaders) {
     for (const hit of hits) {
       const src = hit._source;
       if (!src) continue;
-      const item = parseHit(src);
+      const item = parseHit(src, hit._id);
       if (item) {
         allItems.push(item);
       } else {
@@ -527,6 +528,7 @@ async function extractViaDOM(page) {
     language: '',
     noise: detectNoise(item.comment),
     areaPath: '',
+    ocvId: '',
   }));
 }
 
@@ -720,7 +722,7 @@ async function main() {
     // Step 8: Write CSV
     const rows = results.map(item =>
       [item.date, item.comment, item.provider, item.sentiment, item.intent,
-       item.feature, item.scenario || '', item.category, item.language, item.noise, item.areaPath || '', item.client || '', item.rating || '']
+       item.feature, item.scenario || '', item.category, item.language, item.noise, item.areaPath || '', item.client || '', item.rating || '', item.ocvId || '']
         .map(csvEscape).join(',')
     );
     const csv = [CSV_HEADER, ...rows].join('\n');
