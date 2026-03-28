@@ -282,8 +282,8 @@ function parseHit(src) {
   let client = '';
   const platform = (src.Platform || '').toLowerCase();
 
-  // Scenario: raw FeatureName from OCV (the featureArea used in the query)
-  const scenario = src.FeatureName || '';
+  // Scenario: raw FeatureName from OCV; fall back to FeatureArea if FeatureName is empty
+  const scenario = src.FeatureName || src.FeatureArea || '';
   if (/windows\s*desktop|win32|win64/.test(platform)) client = 'Desktop';
   else if (/\bweb\b|owa|browser/.test(platform)) client = 'OWA';
   else if (/\bmac\b|macos|osx/.test(platform)) client = 'Mac';
@@ -659,7 +659,7 @@ async function main() {
 
     console.log('Navigating to OCV...');
     if (dateArg) console.log(`Date filter: --date ${dateArg}`);
-    await page.goto(navUrl, { waitUntil: 'networkidle', timeout: 60000 });
+    await page.goto(navUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
 
     // Step 3: Wait for auth
     console.log('Waiting for OCV to load (complete SSO login if prompted)...');
