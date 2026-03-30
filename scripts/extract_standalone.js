@@ -183,7 +183,7 @@ const OFFSET_MAP = {
   'all': { relDateType: 'all', offset: 0 },
 };
 
-const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Scenario,Category,Language,Noise,AreaPath,Client,Rating,OcvId';
+const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Scenario,Category,Language,Noise,AreaPath,Client,Rating,OcvId,CmmId,SourceContext,EntryPoint,SubFeature,SentimentThemes,CopilotIntent,ACRUE';
 
 // --- CSV Helpers ---
 
@@ -221,6 +221,23 @@ function resolveProvider(email) {
   return domainMap[domain] || REDACTED_LABEL;
 }
 
+// Extract deduplicated part values from a Classification entry
+function extractClassParts(c) {
+  if (c.Tags && c.Tags.length > 0) return [...new Set(c.Tags)];
+  if (c.LabelGroupings) {
+    const parts = [];
+    for (const lg of c.LabelGroupings) {
+      if (lg.Parts) {
+        for (const p of lg.Parts) {
+          if (p.Value) parts.push(p.Value);
+        }
+      }
+    }
+    return [...new Set(parts)];
+  }
+  return [];
+}
+
 function parseHit(src, ocvId) {
   // Comment: prefer translated (English) PII-redacted text
   const comment = src.TranslatedTextPiiRedacted || src.OriginalTextPiiRedacted
@@ -253,9 +270,12 @@ function parseHit(src, ocvId) {
     areaPath = paths.join('|');
   }
 
-  // Sentiment + Intent: from Classifications array
+  // Sentiment + Intent + Classifier metadata: from Classifications array
   let sentiment = '';
   let intent = '';
+  let sentimentThemes = '';
+  let copilotIntent = '';
+  let acrue = '';
   if (src.Classifications && Array.isArray(src.Classifications)) {
     for (const c of src.Classifications) {
       if (c.Name === 'Text Sentiment' && c.Tags && c.Tags.length > 0) {
@@ -263,6 +283,15 @@ function parseHit(src, ocvId) {
       }
       if (c.Name === 'Text Intent' && c.Tags && c.Tags.length > 0) {
         intent = c.Tags[0];
+      }
+      if (c.Name === 'Copilot Sentiment Themes') {
+        sentimentThemes = extractClassParts(c).join('|');
+      }
+      if (c.Name === 'Copilot Canonical Intents') {
+        copilotIntent = extractClassParts(c).join('|');
+      }
+      if (c.Name === 'ACRUE') {
+        acrue = extractClassParts(c).join('|');
       }
     }
   }
@@ -283,7 +312,26 @@ function parseHit(src, ocvId) {
   const platform = (src.Platform || '').toLowerCase();
 
   // Scenario: raw FeatureName from OCV; fall back to FeatureArea if FeatureName is empty
-  const scenario = src.FeatureName || src.FeatureArea || '';
+  let scenario = src.FeatureName || src.FeatureArea || '';
+
+  // CmmId: extract from AppData JSON (scenario identifier, not PII)
+  let cmmId = '';
+  if (src.AppData) {
+    try {
+      const ad = typeof src.AppData === 'string' ? JSON.parse(src.AppData) : src.AppData;
+      cmmId = ad.Cmmid || ad.cmmId || ad.CmmId || ad.CMMID || '';
+    } catch {}
+  }
+
+  // Scenario override: CMMId-based items often have misleading FeatureName (e.g., "Theming")
+  const CMMID_SCENARIO_MAP = {
+    'cmmyz8p6paw': 'VibeWriting',
+    'cmmq2silgi7': 'VibeWritingReply',
+  };
+  if (cmmId && CMMID_SCENARIO_MAP[cmmId]) {
+    scenario = CMMID_SCENARIO_MAP[cmmId];
+  }
+
   if (/windows\s*desktop|win32|win64/.test(platform)) client = 'Desktop';
   else if (/\bweb\b|owa|browser/.test(platform)) client = 'OWA';
   else if (/\bmac\b|macos|osx/.test(platform)) client = 'Mac';
@@ -295,6 +343,10 @@ function parseHit(src, ocvId) {
   // Rating: user's thumbs up/down from OCV feedback fields
   const rating = src.FeedbackRating ?? src.OriginalRating ?? src.FeedbackScore ?? '';
   const feedbackType = src.FeedbackType || '';
+
+  const sourceContext = src.SourceContext || '';
+  const entryPoint = src.AppEntryPoint || src.EntryPoint || '';
+  const subFeature = src.SubFeatureName || '';
 
   return {
     date,
@@ -311,6 +363,13 @@ function parseHit(src, ocvId) {
     client,
     rating: feedbackType || String(rating),
     ocvId: ocvId || '',
+    cmmId,
+    sourceContext,
+    entryPoint,
+    subFeature,
+    sentimentThemes,
+    copilotIntent,
+    acrue,
   };
 }
 
@@ -722,7 +781,9 @@ async function main() {
     // Step 8: Write CSV
     const rows = results.map(item =>
       [item.date, item.comment, item.provider, item.sentiment, item.intent,
-       item.feature, item.scenario || '', item.category, item.language, item.noise, item.areaPath || '', item.client || '', item.rating || '', item.ocvId || '']
+       item.feature, item.scenario || '', item.category, item.language, item.noise, item.areaPath || '', item.client || '', item.rating || '', item.ocvId || '',
+       item.cmmId || '', item.sourceContext || '', item.entryPoint || '', item.subFeature || '',
+       item.sentimentThemes || '', item.copilotIntent || '', item.acrue || '']
         .map(csvEscape).join(',')
     );
     const csv = [CSV_HEADER, ...rows].join('\n');
