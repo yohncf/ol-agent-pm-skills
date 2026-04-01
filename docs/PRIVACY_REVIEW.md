@@ -156,6 +156,33 @@ The whitelist currently contains ~55 public ISPs with ~150 domain patterns, sour
 
 The tool extracts data via OCV's Elasticsearch API, which returns ~200+ fields per feedback item. Many of these fields are PII or PII-adjacent. The tool **only extracts the following fields:**
 
+### 4d. ODS Ticket Extraction PII Scrubbing
+
+The ODS extraction script (`scripts/ods_api_extract.py`) retrieves support ticket data from the ODS REST API. Unlike OCV, the ODS API provides **no server-side PII redaction** — ProblemStatement fields contain raw customer-entered text including email addresses, phone numbers, and sign-off names.
+
+**Scrubbing implementation:** The script uses a shared PII module (`scripts/lib/pii_scrub.py`) that applies the same pattern families as the OCV JavaScript scrubber, plus additional patterns for multilingual coverage:
+
+| # | Pattern | Matches | Replaced With |
+|---|---------|---------|---------------|
+| 1 | `\[PII:\s*Email\]` | OCV redaction tags (if present in cross-referenced text) | `[REDACTED_EMAIL]` |
+| 2 | Email regex | Email addresses (`user@example.com`) | `[REDACTED_EMAIL]` |
+| 3 | Phone regex (US/intl) | Phone numbers (`(555) 123-4567`, `+44 20 7946 0958`) | `[REDACTED_PHONE]` |
+| 4 | Phone regex (EU slash format) | European formats (`086/3801088`) | `[REDACTED_PHONE]` |
+| 5 | Sign-off name patterns | Names after salutations in 10 languages (e.g., `Regards, John Smith`, `Mvh Pia Granlund`, `Cordialement, Marie Dupont`) | `[REDACTED_NAME]` |
+
+**ODS-specific considerations:**
+
+- ODS ProblemStatement is entirely user-authored free text (no structured redaction from the platform).
+- ODS tickets are multilingual — the sign-off patterns cover English, Swedish, Dutch, French, German, Portuguese, and Spanish greetings.
+- The scrubbing runs in-memory during extraction; raw PII is never written to disk.
+- A PII summary (redaction counts by type) is printed to stdout at the end of each extraction run.
+
+**Limitations (same as OCV, plus):**
+
+- Name detection is limited to sign-off patterns. Names mentioned mid-sentence ("my name is John Smith") are not caught.
+- Physical addresses, account IDs, and social security numbers are not detected.
+- Non-Latin scripts (Arabic, CJK, Cyrillic) have limited phone/email pattern coverage.
+
 | Field | Contains PII? | Measure |
 |-------|--------------|---------|
 | `OriginalTextPiiRedacted` | PII-bearing (verbatim text, server-side redacted) | Additional client-side PII scrubbing applied |
@@ -184,9 +211,11 @@ This field selection follows the **principle of minimum necessary data**: we ext
 
 | Dependency | Purpose | Network Activity |
 |------------|---------|-----------------|
-| Node.js | Runtime for the extraction script | None (runs locally) |
+| Node.js | Runtime for the OCV extraction script | None (runs locally) |
 | Playwright (npm package) | Browser automation library | None at runtime. Downloaded once during `npm install` from npmjs.com. |
 | Microsoft Edge | Browser used to render OCV | Connects to ocv.microsoft.com (internal) |
+| Python 3 | Runtime for the ODS extraction script | None (runs locally) |
+| azure-identity (pip package) | Azure AD authentication for ODS API | Connects to login.microsoftonline.com (Microsoft) |
 
 **Note:** Playwright does not download a separate browser. The script is configured to use the Edge binary already installed on the machine (`channel: 'msedge'`).
 
@@ -210,7 +239,7 @@ This field selection follows the **principle of minimum necessary data**: we ext
 
 1. **Verify data classification.** Confirm that the extracted OCV feedback (even after PII scrubbing) is classified appropriately for storage on OneDrive for Business.
 
-2. **Review PII patterns.** If additional PII types are found in feedback (names, account IDs, addresses), add corresponding regex patterns to `scrubPII()` in `extract_standalone.js`.
+2. **Review PII patterns.** If additional PII types are found in feedback (names, account IDs, addresses), add corresponding patterns to the shared PII module (`scripts/lib/pii_scrub.py` for Python scripts) and to `scrubPII()` in `extract_standalone.js` (for OCV extraction).
 
 3. **Set a retention policy.** Define how long extracted CSVs should be retained. Consider deleting exports older than 90 days or archiving to a secured SharePoint location.
 
@@ -261,10 +290,10 @@ The E+D Data Use Guidance (effective March 3, 2026) states: "Claude Code cannot 
 | Does data leave Microsoft's network? | No |
 | Does data go to Claude/Anthropic/any AI service? | No |
 | Does data go to any external API? | No |
-| Is raw PII written to disk? | No — scrubbed in-memory first |
+| Is raw PII written to disk? | No — scrubbed in-memory first (both OCV and ODS scripts) |
 | Is the data access authorized? | Yes — uses the user's own OCV permissions via SSO |
 | Where is the output stored? | OneDrive for Business (Microsoft corporate tenant) |
-| What PII protections are in place? | Three layers: (1) OCV server-side redaction, (2) client-side regex scrubbing, (3) ISP whitelist for provider extraction |
+| What PII protections are in place? | OCV: Three layers (server-side redaction, client-side regex, ISP whitelist). ODS: Client-side regex scrubbing with 5 pattern families covering multilingual sign-offs. |
 | Are email addresses or domains extracted? | No. Only ISP provider names (from a whitelist of ~55 public ISPs). Non-ISP domains are redacted. |
 | Are user/device/org identifiers extracted? | No. Explicit field allowlist — only comment, date, type, tags, and source type are extracted. |
 | Is the approach aligned with Microsoft PII policy? | Yes. Follows "minimum necessary data" principle. Email domains treated as PII unless on the public ISP whitelist. |

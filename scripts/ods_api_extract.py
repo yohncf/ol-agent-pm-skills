@@ -26,11 +26,16 @@ Input CSV format:
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 import time
 import urllib.request
 from azure.identity import DefaultAzureCredential
+
+# Add scripts/ to path so lib.pii_scrub is importable
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib.pii_scrub import scrub_text
 
 API_BASE = "https://portal.diagnostics.office.com/v1/diagnosticsession/?id="
 CLIENT_ID = "57da3f69-2d82-4c17-9e57-2e6d78b2dc60"
@@ -116,10 +121,13 @@ def extract_ticket(ticket_id: str, token: str) -> dict:
         return data
 
 
-def format_row(ticket: dict, data: dict, include_extended: bool) -> list[str]:
-    """Format a single ticket's data into a CSV row."""
+def format_row(ticket: dict, data: dict, include_extended: bool) -> tuple[list[str], dict[str, int]]:
+    """Format a single ticket's data into a CSV row. Returns (row, pii_stats)."""
     problem = data.get("ProblemStatement", "")
     problem = problem.replace("\r\n", " ").replace("\n", " ").replace("\r", " ").strip()
+
+    # Scrub PII from ProblemStatement
+    problem, pii_stats = scrub_text(problem)
 
     # Core fields
     row = ticket["meta"] + [
@@ -157,7 +165,7 @@ def format_row(ticket: dict, data: dict, include_extended: bool) -> list[str]:
         row.extend([tags_str, ticket_tier, entitlement, ocv_area])
 
     row.append(ticket["url"])
-    return row
+    return row, pii_stats
 
 
 def build_header(meta_count: int, include_extended: bool) -> list[str]:
@@ -208,6 +216,7 @@ def main():
     start = time.time()
     success = 0
     errors = 0
+    pii_totals: dict[str, int] = {}
 
     with open(output, mode, newline="", encoding="utf-8") as f:
         writer = csv.writer(f, quoting=csv.QUOTE_ALL)
@@ -217,9 +226,11 @@ def main():
         for i, ticket in enumerate(tickets):
             try:
                 data = extract_ticket(ticket["id"], token)
-                row = format_row(ticket, data, include_extended)
+                row, pii_stats = format_row(ticket, data, include_extended)
                 writer.writerow(row)
                 success += 1
+                for name, count in pii_stats.items():
+                    pii_totals[name] = pii_totals.get(name, 0) + count
             except Exception as e:
                 error_row = ticket["meta"] + [ticket["id"], f"ERROR: {e}"]
                 error_row.extend([""] * (len(header) - len(error_row) - 1))
@@ -236,6 +247,16 @@ def main():
     rate = success / elapsed if elapsed > 0 else 0
     print(f"\nDone: {success} extracted, {errors} errors in {elapsed:.1f}s ({rate:.1f} tickets/sec)")
     print(f"Output: {output}")
+
+    # PII summary
+    total_pii = sum(pii_totals.values())
+    if total_pii > 0:
+        emails = pii_totals.get("emails", 0) + pii_totals.get("ocv_tags", 0)
+        phones = pii_totals.get("phones", 0) + pii_totals.get("phones_eu", 0)
+        names = pii_totals.get("signoff_names", 0)
+        print(f"PII scrubbed: {total_pii} redactions ({emails} emails, {phones} phones, {names} names)")
+    else:
+        print("PII check passed — no PII detected.")
 
 
 if __name__ == "__main__":

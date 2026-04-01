@@ -491,7 +491,7 @@ async function extractViaAPI(page, capturedQuery, capturedHeaders) {
   }
 
   console.log(`Extraction source: Elasticsearch API (${allItems.length} items)`);
-  return allItems;
+  return { items: allItems, structuredOnlyCount };
 }
 
 // --- DOM Fallback ---
@@ -679,7 +679,16 @@ async function main() {
 
     // Step 5: Extract
     console.log('Extracting feedback data via API...');
-    let results = await extractViaAPI(page, capturedQuery, capturedHeaders);
+    let structuredOnlyCount = 0;
+    let apiResult = await extractViaAPI(page, capturedQuery, capturedHeaders);
+    let results;
+    if (apiResult && apiResult.items) {
+      results = apiResult.items;
+      structuredOnlyCount = apiResult.structuredOnlyCount || 0;
+    } else {
+      // DOM fallback returns a plain array
+      results = apiResult;
+    }
 
     // Step 6: Filter for "yesterday"
     if (dateArg && OFFSET_MAP[dateArg.toLowerCase()]?.filterDate) {
