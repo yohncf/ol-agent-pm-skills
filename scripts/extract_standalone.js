@@ -183,7 +183,7 @@ const OFFSET_MAP = {
   'all': { relDateType: 'all', offset: 0 },
 };
 
-const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Scenario,Category,Language,Noise,AreaPath,Client,Rating,OcvId,CmmId,SourceContext,EntryPoint,SubFeature,SentimentThemes,CopilotIntent,ACRUE';
+const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Scenario,Category,Language,Noise,AreaPath,Client,Rating,OcvId,CmmId,SourceContext,EntryPoint,SubFeature,SentimentThemes,CopilotIntent,ACRUE,RawFeatureName,RawFeatureArea,RawPlatform,Endpoint,Application,FeedbackType,RawAppData,PlatformExternal,UserAgent,SdkVersion';
 
 // --- CSV Helpers ---
 
@@ -316,10 +316,11 @@ function parseHit(src, ocvId) {
 
   // CmmId: extract from AppData JSON (scenario identifier, not PII)
   let cmmId = '';
+  let appDataParsed = {};
   if (src.AppData) {
     try {
-      const ad = typeof src.AppData === 'string' ? JSON.parse(src.AppData) : src.AppData;
-      cmmId = ad.Cmmid || ad.cmmId || ad.CmmId || ad.CMMID || '';
+      appDataParsed = typeof src.AppData === 'string' ? JSON.parse(src.AppData) : src.AppData;
+      cmmId = appDataParsed.Cmmid || appDataParsed.cmmId || appDataParsed.CmmId || appDataParsed.CMMID || '';
     } catch {}
   }
 
@@ -332,7 +333,28 @@ function parseHit(src, ocvId) {
     scenario = CMMID_SCENARIO_MAP[cmmId];
   }
 
-  if (/windows\s*desktop|win32|win64/.test(platform)) client = 'Desktop';
+  if (/windows\s*desktop|win32|win64/.test(platform)) {
+    // Distinguish Monarch (New Outlook) from Win32 (Classic Outlook) on Windows Desktop.
+    // Monarch feedback goes through web SDK (scc-react-feedback-plugin, PlatformExternal=Web).
+    // Win32 feedback goes through native SDK (InAppFeedback HVC or MSO, PlatformExternal=Windows/Windows Desktop).
+    // DAB/BizChat items have AppData.UiHost for definitive identification.
+    const uiHost = (appDataParsed.UiHost || '').toLowerCase();
+    const clientName = (appDataParsed.clientName || '').toLowerCase();
+    const platExt = (src.PlatformExternal || '').toLowerCase();
+    const sdkVer = (src.SdkVersion || '').toLowerCase();
+
+    if (uiHost.includes('monarch') || clientName.includes('monarch')) {
+      client = 'Desktop (Monarch)';
+    } else if (uiHost.includes('classic') || clientName.includes('outlookocv')) {
+      client = 'Desktop (Win32)';
+    } else if (platExt === 'web' || sdkVer.includes('scc-react-feedback-plugin')) {
+      client = 'Desktop (Monarch)';
+    } else if (platExt === 'windows desktop' || platExt === 'windows' || sdkVer.includes('mso v')) {
+      client = 'Desktop (Win32)';
+    } else {
+      client = 'Desktop';
+    }
+  }
   else if (/\bweb\b|owa|browser/.test(platform)) client = 'OWA';
   else if (/\bmac\b|macos|osx/.test(platform)) client = 'Mac';
   else if (/ios|iphone|ipad/.test(platform)) client = 'Mobile (iOS)';
@@ -347,6 +369,11 @@ function parseHit(src, ocvId) {
   const sourceContext = src.SourceContext || '';
   const entryPoint = src.AppEntryPoint || src.EntryPoint || '';
   const subFeature = src.SubFeatureName || '';
+
+  // Raw metadata for diagnostic/cross-reference (non-PII)
+  const rawAppData = src.AppData
+    ? (typeof src.AppData === 'string' ? src.AppData : JSON.stringify(src.AppData))
+    : '';
 
   return {
     date,
@@ -370,6 +397,16 @@ function parseHit(src, ocvId) {
     sentimentThemes,
     copilotIntent,
     acrue,
+    rawFeatureName: src.FeatureName || '',
+    rawFeatureArea: src.FeatureArea || '',
+    rawPlatform: src.Platform || '',
+    endpoint: src.Endpoint || src.EndPoint || '',
+    application: src.Application || '',
+    feedbackType,
+    rawAppData,
+    platformExternal: src.PlatformExternal || '',
+    userAgent: src.UserAgent || '',
+    sdkVersion: src.SdkVersion || '',
   };
 }
 
@@ -783,7 +820,10 @@ async function main() {
       [item.date, item.comment, item.provider, item.sentiment, item.intent,
        item.feature, item.scenario || '', item.category, item.language, item.noise, item.areaPath || '', item.client || '', item.rating || '', item.ocvId || '',
        item.cmmId || '', item.sourceContext || '', item.entryPoint || '', item.subFeature || '',
-       item.sentimentThemes || '', item.copilotIntent || '', item.acrue || '']
+       item.sentimentThemes || '', item.copilotIntent || '', item.acrue || '',
+       item.rawFeatureName || '', item.rawFeatureArea || '', item.rawPlatform || '',
+       item.endpoint || '', item.application || '', item.feedbackType || '', item.rawAppData || '',
+       item.platformExternal || '', item.userAgent || '', item.sdkVersion || '']
         .map(csvEscape).join(',')
     );
     const csv = [CSV_HEADER, ...rows].join('\n');
