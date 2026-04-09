@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // OCV Standalone Extraction Script
 // Requires: Node.js 18+, Playwright, Microsoft Edge
-// Usage: node scripts/extract_standalone.js [--config <config.json>] [--url <ocv-url>] [output.csv] [--date <value>] [--include-structured]
+// Usage: node scripts/extract_standalone.js [--config <config.json>] [--url <ocv-url>] [output.csv] [--date <value>] [--include-structured] [--no-cleanup]
 //
 // Config-driven extraction. Each area (Accounts, Calendar, Copilot, etc.) has its own
 // config file in configs/ that defines the OCV URL, category keywords, feature tags,
@@ -75,6 +75,9 @@ if (weeklySummaryFlag) rawArgs.splice(rawArgs.indexOf('--weekly-summary'), 1);
 const includeStructured = rawArgs.includes('--include-structured') || rawArgs.includes('--include-blank');
 if (rawArgs.includes('--include-structured')) rawArgs.splice(rawArgs.indexOf('--include-structured'), 1);
 if (rawArgs.includes('--include-blank')) rawArgs.splice(rawArgs.indexOf('--include-blank'), 1);
+
+const noCleanup = rawArgs.includes('--no-cleanup');
+if (noCleanup) rawArgs.splice(rawArgs.indexOf('--no-cleanup'), 1);
 
 // Remaining positional args: [output.csv]
 const outputFile = rawArgs[0] || `ocv_extract_${new Date().toISOString().slice(0, 10)}.csv`;
@@ -183,7 +186,7 @@ const OFFSET_MAP = {
   'all': { relDateType: 'all', offset: 0 },
 };
 
-const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Scenario,Category,Language,Noise,AreaPath,Client,Rating,OcvId,CmmId,SourceContext,EntryPoint,SubFeature,SentimentThemes,CopilotIntent,ACRUE,RawFeatureName,RawFeatureArea,RawPlatform,Endpoint,Application,FeedbackType,RawAppData,PlatformExternal,UserAgent,SdkVersion';
+const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Scenario,Category,Language,Noise,AreaPath,Client,Rating,OcvId,CmmId,SourceContext,EntryPoint,SubFeature,SentimentThemes,CopilotIntent,ACRUE,RawFeatureName,RawFeatureArea,RawPlatform,Endpoint,Application,FeedbackType,RawAppData,PlatformExternal,UserAgent,SdkVersion,PromptInEnglish,ResponseInEnglish,Audience';
 
 // --- CSV Helpers ---
 
@@ -219,6 +222,16 @@ function resolveProvider(email) {
   const domain = email.slice(atIdx + 1).toLowerCase().trim();
   if (!domain) return '';
   return domainMap[domain] || REDACTED_LABEL;
+}
+
+const MSFT_DOMAINS = new Set(['microsoft.com', 'ntdev.microsoft.com', 'xbox.com', 'linkedin.com']);
+
+function classifyAudience(email) {
+  if (!email) return '';
+  const atIdx = email.lastIndexOf('@');
+  if (atIdx === -1) return '';
+  const domain = email.slice(atIdx + 1).toLowerCase().trim();
+  return MSFT_DOMAINS.has(domain) ? 'Internal' : 'External';
 }
 
 // Extract deduplicated part values from a Classification entry
@@ -262,6 +275,9 @@ function parseHit(src, ocvId) {
 
   // Provider: email domain → whitelist lookup
   const provider = resolveProvider(src.Email);
+
+  // Audience: Internal (microsoft.com) vs External
+  const audience = classifyAudience(src.Email);
 
   // Area path: extract from OcvAreas for cross-area analysis
   let areaPath = '';
@@ -311,8 +327,13 @@ function parseHit(src, ocvId) {
   let client = '';
   const platform = (src.Platform || '').toLowerCase();
 
-  // Scenario: raw FeatureName from OCV; fall back to FeatureArea if FeatureName is empty
+  // Scenario: raw FeatureName from OCV; fall back to FeatureArea if FeatureName is empty.
+  // "Theming" is a known Monarch client bug — FeatureName is set to "Theming" for all DAB
+  // interactions regardless of actual scenario. Fall back to FeatureArea in that case.
   let scenario = src.FeatureName || src.FeatureArea || '';
+  if (scenario === 'Theming') {
+    scenario = src.FeatureArea || 'Theming';
+  }
 
   // CmmId: extract from AppData JSON (scenario identifier, not PII)
   let cmmId = '';
@@ -425,6 +446,11 @@ function parseHit(src, ocvId) {
     ? (typeof src.AppData === 'string' ? src.AppData : JSON.stringify(src.AppData))
     : '';
 
+  // AI context: prompt and response (English translations, for bug investigation)
+  const aiContext = src.AiContext || {};
+  const promptInEnglish = aiContext.PromptInEnglish || '';
+  const responseInEnglish = aiContext.ResponseMessageInEnglish || '';
+
   return {
     date,
     comment,
@@ -457,6 +483,9 @@ function parseHit(src, ocvId) {
     platformExternal: src.PlatformExternal || '',
     userAgent: src.UserAgent || '',
     sdkVersion: src.SdkVersion || '',
+    promptInEnglish,
+    responseInEnglish,
+    audience,
   };
 }
 
@@ -473,12 +502,32 @@ function scrubPII(results) {
 
   for (const item of results) {
     for (const { regex, replacement, type } of patterns) {
+      // Scrub comment
       regex.lastIndex = 0;
       const matches = item.comment.match(regex);
       if (matches) {
         stats[type] += matches.length;
         stats.total += matches.length;
         item.comment = item.comment.replace(regex, replacement);
+      }
+      // Scrub prompt and response (same PII patterns)
+      if (item.promptInEnglish) {
+        regex.lastIndex = 0;
+        const pMatches = item.promptInEnglish.match(regex);
+        if (pMatches) {
+          stats[type] += pMatches.length;
+          stats.total += pMatches.length;
+          item.promptInEnglish = item.promptInEnglish.replace(regex, replacement);
+        }
+      }
+      if (item.responseInEnglish) {
+        regex.lastIndex = 0;
+        const rMatches = item.responseInEnglish.match(regex);
+        if (rMatches) {
+          stats[type] += rMatches.length;
+          stats.total += rMatches.length;
+          item.responseInEnglish = item.responseInEnglish.replace(regex, replacement);
+        }
       }
     }
   }
@@ -873,7 +922,8 @@ async function main() {
        item.sentimentThemes || '', item.copilotIntent || '', item.acrue || '',
        item.rawFeatureName || '', item.rawFeatureArea || '', item.rawPlatform || '',
        item.endpoint || '', item.application || '', item.feedbackType || '', item.rawAppData || '',
-       item.platformExternal || '', item.userAgent || '', item.sdkVersion || '']
+       item.platformExternal || '', item.userAgent || '', item.sdkVersion || '',
+       item.promptInEnglish || '', item.responseInEnglish || '', item.audience || '']
         .map(csvEscape).join(',')
     );
     const csv = [CSV_HEADER, ...rows].join('\n');
@@ -974,6 +1024,12 @@ async function main() {
     // Step 10: Generate weekly summary markdown (--weekly-summary flag)
     if (weeklySummaryFlag && results.length > 0) {
       generateWeeklySummary(results, config, piiStats);
+    }
+
+    // Step 11: Cleanup old verbatim CSVs
+    if (!noCleanup) {
+      const { postExtractionCleanup } = require('./cleanup_csvs');
+      await postExtractionCleanup(outputPath);
     }
 
   } catch (err) {

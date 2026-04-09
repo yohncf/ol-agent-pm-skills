@@ -82,6 +82,7 @@ The manifest at `data/manifests/<name>_manifest.json` preserves all analytical v
 | Language | Language code (en, de, fr, etc.) |
 | Noise | "true" if matched a noise pattern; empty otherwise |
 | AreaPath | OCV area hierarchy (pipe-delimited) |
+| Audience | `Internal` (Microsoft employees) or `External` |
 
 ## COMPLIANCE
 

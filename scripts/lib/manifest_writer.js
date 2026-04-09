@@ -49,7 +49,8 @@ function createManifest(csvPath, configPath, opts = {}) {
  * @param {object} stats - Keys: sentimentDistribution, ratingDistribution,
  *   scenarioDistribution, clientDistribution, categoryDistribution,
  *   languageDistribution, feedbackTypeDistribution, intentDistribution,
- *   noiseCount, etc.
+ *   audienceDistribution, noiseCount,
+ *   byAudience (per-audience breakdowns), byLanguage (per-language breakdowns), etc.
  */
 function addMetadata(manifest, stats) {
   manifest.metadata = { ...manifest.metadata, ...stats };
@@ -58,7 +59,7 @@ function addMetadata(manifest, stats) {
 /**
  * Add discovered themes to the manifest.
  * @param {object} manifest
- * @param {Array<{name: string, count: number, description: string, sentiment?: object, examples: Array<{ocvId: string, paraphrase: string}>}>} themes
+ * @param {Array<{name: string, count: number, description: string, sentiment?: object, audienceSkew?: string, languageSignal?: string, examples: Array<{ocvId: string, paraphrase: string}>}>} themes
  */
 function addThemes(manifest, themes) {
   manifest.themes = themes.map(t => ({
@@ -66,6 +67,8 @@ function addThemes(manifest, themes) {
     count: t.count || 0,
     description: t.description || '',
     sentiment: t.sentiment || {},
+    audienceSkew: t.audienceSkew || null,
+    languageSignal: t.languageSignal || null,
     examples: (t.examples || []).map(ex => ({
       ocvId: ex.ocvId,
       paraphrase: ex.paraphrase || '',

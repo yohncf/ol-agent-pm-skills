@@ -55,15 +55,17 @@ For datasets **under ~100 items**, the overhead of the metadata summary makes tw
 For Pass 2, format each verbatim item as a single line:
 
 ```
-<row_number>. [<Rating>|<Scenario>|<Client>] <Comment text>
+<row_number>. [<Rating>|<Scenario>|<Client>|<Lang>|<Audience>] <Comment text>
 ```
 
 Example:
 ```
-42. [ThumbsDown|Elaborate|Desktop (Win32)] It sounds like it was written by someone from HR.
-153. [ThumbsDown|DAB|Web (Monarch)] Copilot summary missed the key action items from the thread.
-891. [ThumbsUp|Compose|Web (OWA)] Draft was perfect, saved me 10 minutes.
+42. [ThumbsDown|Elaborate|Desktop (Win32)|en|External] It sounds like it was written by someone from HR.
+153. [ThumbsDown|DAB|Web (Monarch)|es|Internal] Copilot summary missed the key action items from the thread.
+891. [ThumbsUp|Compose|Web (OWA)|de|External] Draft was perfect, saved me 10 minutes.
 ```
+
+The `Lang` tag is the 2-letter language code (en, es, de, fr, ja, etc.). The `Audience` tag is `Internal` or `External`. These add ~12 tokens per line to the compact format but enable the LLM to spot language-specific and audience-specific patterns during theme discovery.
 
 Include the **Pass 1 metadata summary** at the top of every batch so the LLM has aggregate context while reading individual comments.
 
@@ -77,8 +79,10 @@ The OCV extraction project lives in the `ocv-extraction/` directory. All paths b
 
 Read the full CSV file from `data/` inside the project root. CSVs typically have these columns (31 total):
 
-Core: `Date, Comment, Provider, Sentiment, Intent, Feature, Scenario, Category, Language, Noise, AreaPath, Client, Rating, OcvId`
+Core: `Date, Comment, Provider, Sentiment, Intent, Feature, Scenario, Category, Language, Noise, AreaPath, Client, Rating, OcvId, Audience`
 Extended: `CmmId, SourceContext, EntryPoint, SubFeature, SentimentThemes, CopilotIntent, ACRUE, RawFeatureName, RawFeatureArea, RawPlatform, Endpoint, Application, FeedbackType, RawAppData, PlatformExternal, UserAgent, SdkVersion`
+
+**Audience column**: `Internal` (Microsoft employees — @microsoft.com) vs `External` (all others). Older CSVs without this column should be treated as all-External.
 
 **Do all of the following programmatically** (no LLM) by reading the CSV with a script:
 
@@ -93,6 +97,7 @@ Extended: `CmmId, SourceContext, EntryPoint, SubFeature, SentimentThemes, Copilo
 
 Compute and present all of the following. These are pure data operations — no LLM needed:
 
+**Overall metrics:**
 - Total items, verbatim count, structured-only count, date range
 - Sentiment distribution (Negative/Neutral/Positive/Unknown)
 - Intent distribution (Problem/Request/Compliment/Unknown)
@@ -100,9 +105,28 @@ Compute and present all of the following. These are pure data operations — no 
 - Scenario distribution (top 15)
 - Client distribution
 - Category distribution (highlight % uncategorized)
-- Top languages, top providers
 - Noise count
 - FeedbackType breakdown
+
+**Audience breakdown (Internal vs External):**
+- Item counts and percentages per audience
+- Thumbs-down rate per audience (are internal users more/less negative?)
+- Top scenarios per audience (do internal users hit different features?)
+- Note: Older CSVs without the `Audience` column should skip this section
+
+**Language breakdown:**
+- Top 15 languages by volume
+- Per-language thumbs-down rate (which languages show highest dissatisfaction?)
+- Per-language top scenarios (do non-English users cluster on different features?)
+- Group languages into tiers for readability:
+  - **Tier 1** (>5% of total): full breakdowns
+  - **Tier 2** (1–5%): counts + thumbs-down rate only
+  - **Tier 3** (<1%): aggregate as "Other languages"
+
+**Segmented sub-breakdowns** (include in the metadata summary block):
+- Scenario × Audience matrix (counts)
+- Scenario × Language (Tier 1) matrix (counts)
+- Thumbs-down rate by Scenario × Audience
 
 Format this as the **metadata summary block** that will be included in Pass 2 prompts.
 
@@ -121,8 +145,33 @@ Identify the top 10-15 recurring themes. For each theme:
 - **Estimated count** across the full dataset
 - **One sentence** describing the issue
 - **Sample row numbers** (3-5) the user can look up in Excel
+- **Audience skew**: If the theme's Internal/External split differs from the overall dataset by >10 percentage points, note it (e.g., "skews 3:1 Internal vs 1:4 overall")
+- **Language signal**: If the theme is concentrated in specific languages (>30% from one non-English language), note it (e.g., "45% of this theme is from Spanish-language feedback")
 
 Present as a numbered list.
+
+### 4a. Language-specific insights (Pass 2 — LLM)
+
+For each **Tier 1 language** (>5% of verbatim volume), provide a brief sub-analysis:
+
+1. **Top 3 themes** for that language — are they the same as global themes, or different?
+2. **Unique signals**: Any issues that appear in this language but not in the global top 15 themes
+3. **Thumbs-down rate context**: Higher or lower than global average? By how much?
+
+Present as a table: Language | Volume | TD Rate | Top themes | Unique signals
+
+This helps identify localization-specific issues (e.g., wrong-language output, translation quality) that may be diluted in global theme discovery.
+
+### 4b. Audience-specific insights (Pass 2 — LLM)
+
+Compare Internal (Microsoft) vs External feedback:
+
+1. **Theme overlap**: Which of the global top themes appear in both audiences? Which are audience-specific?
+2. **Internal-only signals**: Themes that appear primarily from internal users (may indicate dogfooding issues or early feature exposure)
+3. **External-only signals**: Themes that appear primarily from external users (customer pain points)
+4. **Severity comparison**: Are internal users more or less likely to give negative feedback than external users?
+
+Present as a comparison table. Note: Internal feedback may reflect different feature exposure (dogfood rings, preview builds) and should be interpreted accordingly.
 
 ### 5. Category gap analysis
 
@@ -178,7 +227,9 @@ Using the metadata summary from Pass 1 and theme/flag results from earlier Pass 
 - TL;DR first sentence
 - What the data shows and what it may indicate
 - Top 3 recommended actions for the product team
-- Any provider/language/segment-specific signals
+- **Language-specific signals**: Any themes concentrated in specific languages (localization issues, translation quality)
+- **Internal vs External signals**: Any notable differences in what internal dogfooders report vs external customers
+- Any provider/segment-specific signals
 - A brief note on sampling bias (feedback skews toward dissatisfied users)
 
 Use direct, active voice. Lead with conclusions. Frame findings as signals to investigate, not verdicts.
