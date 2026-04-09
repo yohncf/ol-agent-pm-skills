@@ -4,6 +4,9 @@ node_modules/
 # Extracted data and analysis outputs (customer content — do not commit)
 data/*
 !data/.gitkeep
+!data/manifests/
+data/manifests/*
+!data/manifests/.gitkeep
 
 # Browser profiles (SSO cookies)
 .browser-profile/

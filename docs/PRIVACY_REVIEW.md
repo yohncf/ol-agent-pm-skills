@@ -241,7 +241,7 @@ This field selection follows the **principle of minimum necessary data**: we ext
 
 2. **Review PII patterns.** If additional PII types are found in feedback (names, account IDs, addresses), add corresponding patterns to the shared PII module (`scripts/lib/pii_scrub.py` for Python scripts) and to `scrubPII()` in `extract_standalone.js` (for OCV extraction).
 
-3. **Set a retention policy.** Define how long extracted CSVs should be retained. Consider deleting exports older than 90 days or archiving to a secured SharePoint location.
+3. **Set a retention policy.** CSVs with raw customer content are temporary artifacts. After analysis, the `ocv-analyze` skill produces a manifest JSON (`data/manifests/`) that captures all analytical value (themes, counts, OcvId pointers, AI paraphrases) without retaining verbatim text. Delete CSVs after the manifest is generated. Run `node scripts/cleanup_csvs.js` to scan for old CSVs, or `--all-manifests` to clean up all analyzed CSVs. Manifests themselves contain no customer content and can be retained indefinitely.
 
 4. **Restrict folder access.** Ensure the OneDrive folder containing CSVs is not shared beyond authorized team members.
 

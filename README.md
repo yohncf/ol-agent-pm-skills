@@ -170,6 +170,8 @@ No additional software or local models required. Analysis runs through the same 
 - All data stays on your machine and within the Microsoft network. No external services.
 - Personal info (emails, phone numbers) is automatically removed before the CSV is saved.
 - Email domains are only identified for ~55 known public ISPs (Gmail, Comcast, etc.). All other domains are redacted.
+- **CSVs are temporary.** After analysis, the tool produces a manifest (JSON) with aggregate stats, themes, and OcvId pointers — no raw customer content. The CSV should be deleted after analysis.
+- Run `npm run cleanup` to scan for and delete old CSVs.
 - See [docs/PRIVACY_REVIEW.md](docs/PRIVACY_REVIEW.md) for the full review.
 
 ---

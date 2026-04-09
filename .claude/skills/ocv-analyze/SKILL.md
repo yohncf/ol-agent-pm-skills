@@ -145,6 +145,88 @@ When the user asks to validate categories, run these checks on the categorized C
 4. **Multi-category ambiguity**: Find items where the AI confidence was low (<0.7) and show which categories competed. This helps refine category definitions.
 5. **Coverage summary table**: Show each category with count, % of total, and a quality flag (✅ looks good, ⚠️ check samples, 🔴 review needed).
 
+### 11. Generate analysis manifest
+
+**After all analysis steps are complete** (themes, flags, executive summary, PPTX), persist the results as a manifest JSON file. The manifest preserves all analytical value without retaining raw customer content.
+
+Use the manifest writer utility at `scripts/lib/manifest_writer.js`:
+
+```javascript
+const mw = require('./scripts/lib/manifest_writer');
+
+// 1. Create manifest with source metadata
+const manifest = mw.createManifest(csvPath, configPath, {
+  dateRange: { start: '2026-03-26', end: '2026-04-02' },
+  totalItems: 60800,
+  verbatimItems: 9812,
+});
+
+// 2. Add Pass 1 aggregate stats
+mw.addMetadata(manifest, {
+  sentimentDistribution: { Negative: 4200, Neutral: 3100, Positive: 2512 },
+  ratingDistribution: { ThumbsDown: 45000, ThumbsUp: 15800 },
+  scenarioDistribution: { Elaborate: 12000, DAB: 9500 },
+  clientDistribution: { 'Desktop (Win32)': 20000, 'Web (Monarch)': 18000 },
+  // ... all breakdowns from Step 3
+});
+
+// 3. Add themes with OcvId pointers and AI paraphrases
+mw.addThemes(manifest, [
+  {
+    name: 'Wrong Language Output',
+    count: 342,
+    description: 'Copilot responds in a different language than expected.',
+    sentiment: { Negative: 310, Neutral: 25, Positive: 7 },
+    examples: [
+      { ocvId: 'fdcl_v4_abc123', paraphrase: 'User wrote in English but got a Spanish response in Elaborate.' },
+      { ocvId: 'fdcl_v4_def456', paraphrase: 'Compose draft came back in French despite German UI settings.' },
+    ],
+  },
+]);
+
+// 4. Add flagged items
+mw.addFlaggedItems(manifest, [
+  {
+    reason: 'Competitor mentions',
+    ocvIds: ['fdcl_v4_x1', 'fdcl_v4_x2'],
+    paraphrase: 'Users mention switching to Gmail/Gemini due to repeated language issues.',
+  },
+]);
+
+// 5. Add executive summary
+mw.addExecutiveSummary(manifest, 'The executive summary text...');
+
+// 6. Write to data/manifests/
+const outputPath = mw.defaultManifestPath(csvPath);
+mw.writeManifest(manifest, outputPath);
+```
+
+**Manifest output path**: `data/manifests/<csv_basename>_manifest.json`
+
+**Paraphrase generation**: During Pass 2 theme discovery, for each theme's top 3-5 example items, generate a **1-sentence AI paraphrase** that captures the gist without reproducing the user's words verbatim. The paraphrase should be written in PM voice (e.g., "User reports Copilot responded in wrong language when using Elaborate on Win32").
+
+**Important**: The manifest must contain **NO raw customer content** — no verbatim Comment text, no PromptInEnglish, no ResponseInEnglish. Only OcvIds (system identifiers) and AI-generated paraphrases.
+
+Tell the user the manifest path when done.
+
+### 12. Post-analysis cleanup
+
+**After analysis and PPTX generation are both complete**, prompt the user to delete the source CSV:
+
+> "Analysis complete. The manifest has been saved to `data/manifests/<name>.json` with [N] themes and [M] flagged items.
+>
+> The source CSV `<filename>` contains raw customer content. Delete it now? (y/n)"
+
+- If confirmed: delete the CSV and run `mw.markCsvDeleted(manifestPath)` to update the manifest
+- If declined: warn that raw data persists, note in the manifest that `csvDeleted: false`
+
+The user can also clean up later with:
+```bash
+node scripts/cleanup_csvs.js                    # scan for old CSVs
+node scripts/cleanup_csvs.js --all-manifests     # clean up all analyzed CSVs
+node scripts/cleanup_csvs.js --manifest <path>   # clean up one specific CSV
+```
+
 ## Tone and voice
 
 Write as a PM reporting to your team. This is critical — follow these rules in all output:
