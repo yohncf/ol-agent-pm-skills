@@ -27,31 +27,96 @@ Determine:
   - `summary` — Executive summary only
   - `compare` — Compare two CSV files (requires two paths)
 
+## Two-pass analysis architecture
+
+All analysis uses a **two-pass strategy** to maximize the number of items that fit in the context window:
+
+| Pass | What | How | LLM? |
+|------|------|-----|------|
+| **Pass 1 — Metadata** | Aggregate stats, distributions, segment breakdowns | Read full CSV programmatically (Node.js / inline script) | No |
+| **Pass 2 — Verbatim** | Theme discovery, flagging, categorization, executive summary | Send compact comment lines + Pass 1 summary as context | Yes |
+
+### Why two passes
+
+A full CSV row with all 31 fields averages ~205 tokens. Stripping to a compact tag line (`[Rating|Scenario|Client] comment text`) averages **~24 tokens** — an **88% reduction**. This means:
+
+| Items | Single-pass (full row) | Two-pass (compact) | Batches needed |
+|------:|----------------------:|--------------------|:--------------:|
+| 50 | ~10K tokens | ~1.2K + overhead | 1 |
+| 500 | ~103K tokens | ~12K | 1 |
+| 2,000 | ~411K (exceeds window) | ~48K | 1 |
+| 5,000 | ~1M (impossible) | ~120K | 1 |
+| 10,000 | ~2M (impossible) | ~240K | 2 |
+
+For datasets **under ~100 items**, the overhead of the metadata summary makes two-pass slightly less efficient. In that case, fall back to sending full rows directly (skip the compact format).
+
+### Compact line format
+
+For Pass 2, format each verbatim item as a single line:
+
+```
+<row_number>. [<Rating>|<Scenario>|<Client>] <Comment text>
+```
+
+Example:
+```
+42. [ThumbsDown|Elaborate|Desktop (Win32)] It sounds like it was written by someone from HR.
+153. [ThumbsDown|DAB|Web (Monarch)] Copilot summary missed the key action items from the thread.
+891. [ThumbsUp|Compose|Web (OWA)] Draft was perfect, saved me 10 minutes.
+```
+
+Include the **Pass 1 metadata summary** at the top of every batch so the LLM has aggregate context while reading individual comments.
+
 ## What to do
 
 ### 1. Resolve the project root
 
 The OCV extraction project lives in the `ocv-extraction/` directory. All paths below are relative to that directory. Locate the CSV files in `data/` and configs in `configs/`.
 
-### 2. Load the data
+### 2. Load the data (Pass 1 — programmatic)
 
-Read the CSV file from `data/` inside the project root. The CSV has these columns:
-`Date, Comment, Provider, Sentiment, Intent, Feature, Category, Language, Noise, AreaPath`
+Read the full CSV file from `data/` inside the project root. CSVs typically have these columns (31 total):
 
-### 3. Compute aggregate statistics
+Core: `Date, Comment, Provider, Sentiment, Intent, Feature, Scenario, Category, Language, Noise, AreaPath, Client, Rating, OcvId`
+Extended: `CmmId, SourceContext, EntryPoint, SubFeature, SentimentThemes, CopilotIntent, ACRUE, RawFeatureName, RawFeatureArea, RawPlatform, Endpoint, Application, FeedbackType, RawAppData, PlatformExternal, UserAgent, SdkVersion`
 
-Before any qualitative analysis, compute and present:
-- Total items, date range
+**Do all of the following programmatically** (no LLM) by reading the CSV with a script:
+
+1. Parse the full CSV into memory
+2. Count total rows, date range (min/max Date)
+3. Separate **verbatim rows** (non-empty Comment) from **structured-only rows** (empty Comment)
+4. Compute all aggregate breakdowns (see Step 3)
+5. Build the **metadata summary block** — a compact text blob with all the stats
+6. Build the **compact verbatim list** — one line per verbatim item in the tag format above
+
+### 3. Compute aggregate statistics (Pass 1 — no LLM)
+
+Compute and present all of the following. These are pure data operations — no LLM needed:
+
+- Total items, verbatim count, structured-only count, date range
 - Sentiment distribution (Negative/Neutral/Positive/Unknown)
 - Intent distribution (Problem/Request/Compliment/Unknown)
+- Rating distribution (ThumbsUp/ThumbsDown/other)
+- Scenario distribution (top 15)
+- Client distribution
 - Category distribution (highlight % uncategorized)
 - Top languages, top providers
 - Noise count
+- FeedbackType breakdown
 
-### 4. Theme discovery
+Format this as the **metadata summary block** that will be included in Pass 2 prompts.
 
-Read the Comment column directly. Sample 100-150 items evenly across the dataset.
-Identify the top 10 recurring themes. For each theme:
+### 4. Theme discovery (Pass 2 — LLM)
+
+Use the compact verbatim list from Pass 1. Batch sizing:
+
+- **≤100 items**: Send full rows directly (no compact format needed — overhead not worth it)
+- **101–7,000 items**: Send all compact lines in a single batch with the metadata summary
+- **>7,000 items**: Split into batches of ~6,000 compact lines. Run theme discovery on each batch, then merge/deduplicate themes across batches in a final pass.
+
+For each batch, include the metadata summary at the top, then the compact verbatim lines.
+
+Identify the top 10-15 recurring themes. For each theme:
 - **Theme name** (2-4 words)
 - **Estimated count** across the full dataset
 - **One sentence** describing the issue
@@ -67,9 +132,13 @@ If uncategorized items exceed 20% of total:
 - Format each as: Category name, description, estimated count
 - Reference the existing categories from the config file in `configs/`
 
-### 5a. Cross-tab analysis (analysis-type: `crosstab`)
+### 5a. Cross-tab analysis (analysis-type: `crosstab`) — Pass 1 + Pass 2
 
-Break down themes by a segment dimension. The user specifies which dimension to cross-tab by (e.g., account type, provider, language). For each:
+Break down themes by a segment dimension. The user specifies which dimension to cross-tab by (e.g., account type, provider, language).
+
+**Pass 1 (programmatic)**: Build the segment × count matrix from the CSV data directly. Compute counts and percentages per cell.
+
+**Pass 2 (LLM)**: With the matrix and compact verbatim lines, generate insight summaries:
 
 1. **Build a matrix**: rows = top themes, columns = segment values
 2. **Show counts and percentages** per cell
@@ -78,16 +147,18 @@ Break down themes by a segment dimension. The user specifies which dimension to 
 
 Present as a table. This helps identify whether different user segments have different pain points.
 
-### 5b. Sentiment by topic (analysis-type: `sentiment`)
+### 5b. Sentiment by topic (analysis-type: `sentiment`) — mostly Pass 1
 
-For each top theme, show the sentiment breakdown:
+For each top theme, show the sentiment breakdown. This is primarily a **Pass 1** operation (counting sentiment by theme from the CSV), with the LLM only needed for insight generation:
 
 1. **Calculate**: % Negative, % Neutral, % Positive per theme
 2. **Present as a table** with themes as rows and sentiment as columns
 3. **Flag hotspots**: themes with >70% Negative sentiment are highlighted as most emotionally charged
 4. **Insight**: which topics drive the most negative feedback, and which have balanced sentiment (may indicate feature requests rather than problems)
 
-### 6. Flag high-value verbatim
+### 6. Flag high-value verbatim (Pass 2 — LLM)
+
+Use the compact verbatim list from Pass 1. The same batching rules from Step 4 apply.
 
 Identify the most actionable feedback items. Prioritize:
 - Specific error messages or codes
@@ -101,9 +172,9 @@ For each flagged group:
 - **Row numbers** to review in Excel
 - **Brief paraphrase** of what these items describe (do not copy verbatim at length)
 
-### 7. Executive summary
+### 7. Executive summary (Pass 2 — LLM)
 
-Write a 4-6 sentence executive summary:
+Using the metadata summary from Pass 1 and theme/flag results from earlier Pass 2 steps, write a 4-6 sentence executive summary:
 - TL;DR first sentence
 - What the data shows and what it may indicate
 - Top 3 recommended actions for the product team
@@ -128,12 +199,16 @@ When suggesting new categories, output them as ready-to-paste JSON for the confi
 When the user asks to categorize feedback:
 
 1. **Load categories** from the config file in `configs/`. These define the taxonomy.
-2. **Read all items** from the CSV (Comment column).
-3. **Batch items** in groups of 50-100 for categorization.
-4. **For each batch**, classify each item into one of the config-defined categories (or "Uncategorized" if none fit). Output format per item: `row_number|category|confidence|one_sentence_reason`
-5. **Write results** to a new CSV with a `Category` column reflecting the AI-assigned category.
-6. **Show distribution**: category counts, % of total, uncategorized rate.
-7. **Save** the updated CSV as `<original>_categorized.csv`.
+2. **Run Pass 1** — parse the full CSV and build the compact verbatim list (see Step 2).
+3. **Build the category prompt**: include the taxonomy definitions, the metadata summary, and the compact verbatim lines.
+4. **Batch using two-pass rules**:
+   - **≤100 items**: Send full rows with all fields for maximum context.
+   - **101–5,000 items**: Send compact lines. Include the taxonomy at the top of each batch. Each batch can hold ~5,000 compact items (leaving room for the taxonomy + output).
+   - **>5,000 items**: Split into batches of ~4,000 compact lines. Merge results.
+5. **For each batch**, classify each item into one of the config-defined categories (or "Uncategorized" if none fit). Output format per item: `row_number|category|confidence|one_sentence_reason`
+6. **Write results** to a new CSV with a `Category` column reflecting the AI-assigned category.
+7. **Show distribution**: category counts, % of total, uncategorized rate.
+8. **Save** the updated CSV as `<original>_categorized.csv`.
 
 ### 10. Category validation (analysis-type: `validate`)
 
