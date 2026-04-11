@@ -27,37 +27,151 @@ Determine:
   - `summary` — Executive summary only
   - `compare` — Compare two CSV files (requires two paths)
 
+## Two-pass analysis architecture
+
+All analysis uses a **two-pass strategy** to maximize the number of items that fit in the context window:
+
+| Pass | What | How | LLM? |
+|------|------|-----|------|
+| **Pass 1 — Metadata** | Aggregate stats, distributions, segment breakdowns | Read full CSV programmatically (Node.js / inline script) | No |
+| **Pass 2 — Verbatim** | Theme discovery, flagging, categorization, executive summary | Send compact comment lines + Pass 1 summary as context | Yes |
+
+### Why two passes
+
+A full CSV row with all 31 fields averages ~205 tokens. Stripping to a compact tag line (`[Rating|Scenario|Client] comment text`) averages **~24 tokens** — an **88% reduction**. This means:
+
+| Items | Single-pass (full row) | Two-pass (compact) | Batches needed |
+|------:|----------------------:|--------------------|:--------------:|
+| 50 | ~10K tokens | ~1.2K + overhead | 1 |
+| 500 | ~103K tokens | ~12K | 1 |
+| 2,000 | ~411K (exceeds window) | ~48K | 1 |
+| 5,000 | ~1M (impossible) | ~120K | 1 |
+| 10,000 | ~2M (impossible) | ~240K | 2 |
+
+For datasets **under ~100 items**, the overhead of the metadata summary makes two-pass slightly less efficient. In that case, fall back to sending full rows directly (skip the compact format).
+
+### Compact line format
+
+For Pass 2, format each verbatim item as a single line:
+
+```
+<row_number>. [<Rating>|<Scenario>|<Client>|<Lang>|<Audience>] <Comment text>
+```
+
+Example:
+```
+42. [ThumbsDown|Elaborate|Desktop (Win32)|en|External] It sounds like it was written by someone from HR.
+153. [ThumbsDown|DAB|Web (Monarch)|es|Internal] Copilot summary missed the key action items from the thread.
+891. [ThumbsUp|Compose|Web (OWA)|de|External] Draft was perfect, saved me 10 minutes.
+```
+
+The `Lang` tag is the 2-letter language code (en, es, de, fr, ja, etc.). The `Audience` tag is `Internal` or `External`. These add ~12 tokens per line to the compact format but enable the LLM to spot language-specific and audience-specific patterns during theme discovery.
+
+Include the **Pass 1 metadata summary** at the top of every batch so the LLM has aggregate context while reading individual comments.
+
 ## What to do
 
 ### 1. Resolve the project root
 
 The OCV extraction project lives in the `ocv-extraction/` directory. All paths below are relative to that directory. Locate the CSV files in `data/` and configs in `configs/`.
 
-### 2. Load the data
+### 2. Load the data (Pass 1 — programmatic)
 
-Read the CSV file from `data/` inside the project root. The CSV has these columns:
-`Date, Comment, Provider, Sentiment, Intent, Feature, Category, Language, Noise, AreaPath`
+Read the full CSV file from `data/` inside the project root. CSVs typically have these columns (31 total):
 
-### 3. Compute aggregate statistics
+Core: `Date, Comment, Provider, Sentiment, Intent, Feature, Scenario, Category, Language, Noise, AreaPath, Client, Rating, OcvId, Audience`
+Extended: `CmmId, SourceContext, EntryPoint, SubFeature, SentimentThemes, CopilotIntent, ACRUE, RawFeatureName, RawFeatureArea, RawPlatform, Endpoint, Application, FeedbackType, RawAppData, PlatformExternal, UserAgent, SdkVersion`
 
-Before any qualitative analysis, compute and present:
-- Total items, date range
+**Audience column**: `Internal` (Microsoft employees — @microsoft.com) vs `External` (all others). Older CSVs without this column should be treated as all-External.
+
+**Do all of the following programmatically** (no LLM) by reading the CSV with a script:
+
+1. Parse the full CSV into memory
+2. Count total rows, date range (min/max Date)
+3. Separate **verbatim rows** (non-empty Comment) from **structured-only rows** (empty Comment)
+4. Compute all aggregate breakdowns (see Step 3)
+5. Build the **metadata summary block** — a compact text blob with all the stats
+6. Build the **compact verbatim list** — one line per verbatim item in the tag format above
+
+### 3. Compute aggregate statistics (Pass 1 — no LLM)
+
+Compute and present all of the following. These are pure data operations — no LLM needed:
+
+**Overall metrics:**
+- Total items, verbatim count, structured-only count, date range
 - Sentiment distribution (Negative/Neutral/Positive/Unknown)
 - Intent distribution (Problem/Request/Compliment/Unknown)
+- Rating distribution (ThumbsUp/ThumbsDown/other)
+- Scenario distribution (top 15)
+- Client distribution
 - Category distribution (highlight % uncategorized)
-- Top languages, top providers
 - Noise count
+- FeedbackType breakdown
 
-### 4. Theme discovery
+**Audience breakdown (Internal vs External):**
+- Item counts and percentages per audience
+- Thumbs-down rate per audience (are internal users more/less negative?)
+- Top scenarios per audience (do internal users hit different features?)
+- Note: Older CSVs without the `Audience` column should skip this section
 
-Read the Comment column directly. Sample 100-150 items evenly across the dataset.
-Identify the top 10 recurring themes. For each theme:
+**Language breakdown:**
+- Top 15 languages by volume
+- Per-language thumbs-down rate (which languages show highest dissatisfaction?)
+- Per-language top scenarios (do non-English users cluster on different features?)
+- Group languages into tiers for readability:
+  - **Tier 1** (>5% of total): full breakdowns
+  - **Tier 2** (1–5%): counts + thumbs-down rate only
+  - **Tier 3** (<1%): aggregate as "Other languages"
+
+**Segmented sub-breakdowns** (include in the metadata summary block):
+- Scenario × Audience matrix (counts)
+- Scenario × Language (Tier 1) matrix (counts)
+- Thumbs-down rate by Scenario × Audience
+
+Format this as the **metadata summary block** that will be included in Pass 2 prompts.
+
+### 4. Theme discovery (Pass 2 — LLM)
+
+Use the compact verbatim list from Pass 1. Batch sizing:
+
+- **≤100 items**: Send full rows directly (no compact format needed — overhead not worth it)
+- **101–7,000 items**: Send all compact lines in a single batch with the metadata summary
+- **>7,000 items**: Split into batches of ~6,000 compact lines. Run theme discovery on each batch, then merge/deduplicate themes across batches in a final pass.
+
+For each batch, include the metadata summary at the top, then the compact verbatim lines.
+
+Identify the top 10-15 recurring themes. For each theme:
 - **Theme name** (2-4 words)
 - **Estimated count** across the full dataset
 - **One sentence** describing the issue
 - **Sample row numbers** (3-5) the user can look up in Excel
+- **Audience skew**: If the theme's Internal/External split differs from the overall dataset by >10 percentage points, note it (e.g., "skews 3:1 Internal vs 1:4 overall")
+- **Language signal**: If the theme is concentrated in specific languages (>30% from one non-English language), note it (e.g., "45% of this theme is from Spanish-language feedback")
 
 Present as a numbered list.
+
+### 4a. Language-specific insights (Pass 2 — LLM)
+
+For each **Tier 1 language** (>5% of verbatim volume), provide a brief sub-analysis:
+
+1. **Top 3 themes** for that language — are they the same as global themes, or different?
+2. **Unique signals**: Any issues that appear in this language but not in the global top 15 themes
+3. **Thumbs-down rate context**: Higher or lower than global average? By how much?
+
+Present as a table: Language | Volume | TD Rate | Top themes | Unique signals
+
+This helps identify localization-specific issues (e.g., wrong-language output, translation quality) that may be diluted in global theme discovery.
+
+### 4b. Audience-specific insights (Pass 2 — LLM)
+
+Compare Internal (Microsoft) vs External feedback:
+
+1. **Theme overlap**: Which of the global top themes appear in both audiences? Which are audience-specific?
+2. **Internal-only signals**: Themes that appear primarily from internal users (may indicate dogfooding issues or early feature exposure)
+3. **External-only signals**: Themes that appear primarily from external users (customer pain points)
+4. **Severity comparison**: Are internal users more or less likely to give negative feedback than external users?
+
+Present as a comparison table. Note: Internal feedback may reflect different feature exposure (dogfood rings, preview builds) and should be interpreted accordingly.
 
 ### 5. Category gap analysis
 
@@ -67,9 +181,13 @@ If uncategorized items exceed 20% of total:
 - Format each as: Category name, description, estimated count
 - Reference the existing categories from the config file in `configs/`
 
-### 5a. Cross-tab analysis (analysis-type: `crosstab`)
+### 5a. Cross-tab analysis (analysis-type: `crosstab`) — Pass 1 + Pass 2
 
-Break down themes by a segment dimension. The user specifies which dimension to cross-tab by (e.g., account type, provider, language). For each:
+Break down themes by a segment dimension. The user specifies which dimension to cross-tab by (e.g., account type, provider, language).
+
+**Pass 1 (programmatic)**: Build the segment × count matrix from the CSV data directly. Compute counts and percentages per cell.
+
+**Pass 2 (LLM)**: With the matrix and compact verbatim lines, generate insight summaries:
 
 1. **Build a matrix**: rows = top themes, columns = segment values
 2. **Show counts and percentages** per cell
@@ -78,16 +196,18 @@ Break down themes by a segment dimension. The user specifies which dimension to 
 
 Present as a table. This helps identify whether different user segments have different pain points.
 
-### 5b. Sentiment by topic (analysis-type: `sentiment`)
+### 5b. Sentiment by topic (analysis-type: `sentiment`) — mostly Pass 1
 
-For each top theme, show the sentiment breakdown:
+For each top theme, show the sentiment breakdown. This is primarily a **Pass 1** operation (counting sentiment by theme from the CSV), with the LLM only needed for insight generation:
 
 1. **Calculate**: % Negative, % Neutral, % Positive per theme
 2. **Present as a table** with themes as rows and sentiment as columns
 3. **Flag hotspots**: themes with >70% Negative sentiment are highlighted as most emotionally charged
 4. **Insight**: which topics drive the most negative feedback, and which have balanced sentiment (may indicate feature requests rather than problems)
 
-### 6. Flag high-value verbatim
+### 6. Flag high-value verbatim (Pass 2 — LLM)
+
+Use the compact verbatim list from Pass 1. The same batching rules from Step 4 apply.
 
 Identify the most actionable feedback items. Prioritize:
 - Specific error messages or codes
@@ -101,13 +221,15 @@ For each flagged group:
 - **Row numbers** to review in Excel
 - **Brief paraphrase** of what these items describe (do not copy verbatim at length)
 
-### 7. Executive summary
+### 7. Executive summary (Pass 2 — LLM)
 
-Write a 4-6 sentence executive summary:
+Using the metadata summary from Pass 1 and theme/flag results from earlier Pass 2 steps, write a 4-6 sentence executive summary:
 - TL;DR first sentence
 - What the data shows and what it may indicate
 - Top 3 recommended actions for the product team
-- Any provider/language/segment-specific signals
+- **Language-specific signals**: Any themes concentrated in specific languages (localization issues, translation quality)
+- **Internal vs External signals**: Any notable differences in what internal dogfooders report vs external customers
+- Any provider/segment-specific signals
 - A brief note on sampling bias (feedback skews toward dissatisfied users)
 
 Use direct, active voice. Lead with conclusions. Frame findings as signals to investigate, not verdicts.
@@ -128,12 +250,16 @@ When suggesting new categories, output them as ready-to-paste JSON for the confi
 When the user asks to categorize feedback:
 
 1. **Load categories** from the config file in `configs/`. These define the taxonomy.
-2. **Read all items** from the CSV (Comment column).
-3. **Batch items** in groups of 50-100 for categorization.
-4. **For each batch**, classify each item into one of the config-defined categories (or "Uncategorized" if none fit). Output format per item: `row_number|category|confidence|one_sentence_reason`
-5. **Write results** to a new CSV with a `Category` column reflecting the AI-assigned category.
-6. **Show distribution**: category counts, % of total, uncategorized rate.
-7. **Save** the updated CSV as `<original>_categorized.csv`.
+2. **Run Pass 1** — parse the full CSV and build the compact verbatim list (see Step 2).
+3. **Build the category prompt**: include the taxonomy definitions, the metadata summary, and the compact verbatim lines.
+4. **Batch using two-pass rules**:
+   - **≤100 items**: Send full rows with all fields for maximum context.
+   - **101–5,000 items**: Send compact lines. Include the taxonomy at the top of each batch. Each batch can hold ~5,000 compact items (leaving room for the taxonomy + output).
+   - **>5,000 items**: Split into batches of ~4,000 compact lines. Merge results.
+5. **For each batch**, classify each item into one of the config-defined categories (or "Uncategorized" if none fit). Output format per item: `row_number|category|confidence|one_sentence_reason`
+6. **Write results** to a new CSV with a `Category` column reflecting the AI-assigned category.
+7. **Show distribution**: category counts, % of total, uncategorized rate.
+8. **Save** the updated CSV as `<original>_categorized.csv`.
 
 ### 10. Category validation (analysis-type: `validate`)
 
@@ -144,6 +270,88 @@ When the user asks to validate categories, run these checks on the categorized C
 3. **Category balance check**: Flag categories with <5 items (may be too narrow) or >40% of total (may be too broad).
 4. **Multi-category ambiguity**: Find items where the AI confidence was low (<0.7) and show which categories competed. This helps refine category definitions.
 5. **Coverage summary table**: Show each category with count, % of total, and a quality flag (✅ looks good, ⚠️ check samples, 🔴 review needed).
+
+### 11. Generate analysis manifest
+
+**After all analysis steps are complete** (themes, flags, executive summary, PPTX), persist the results as a manifest JSON file. The manifest preserves all analytical value without retaining raw customer content.
+
+Use the manifest writer utility at `scripts/lib/manifest_writer.js`:
+
+```javascript
+const mw = require('./scripts/lib/manifest_writer');
+
+// 1. Create manifest with source metadata
+const manifest = mw.createManifest(csvPath, configPath, {
+  dateRange: { start: '2026-03-26', end: '2026-04-02' },
+  totalItems: 60800,
+  verbatimItems: 9812,
+});
+
+// 2. Add Pass 1 aggregate stats
+mw.addMetadata(manifest, {
+  sentimentDistribution: { Negative: 4200, Neutral: 3100, Positive: 2512 },
+  ratingDistribution: { ThumbsDown: 45000, ThumbsUp: 15800 },
+  scenarioDistribution: { Elaborate: 12000, DAB: 9500 },
+  clientDistribution: { 'Desktop (Win32)': 20000, 'Web (Monarch)': 18000 },
+  // ... all breakdowns from Step 3
+});
+
+// 3. Add themes with OcvId pointers and AI paraphrases
+mw.addThemes(manifest, [
+  {
+    name: 'Wrong Language Output',
+    count: 342,
+    description: 'Copilot responds in a different language than expected.',
+    sentiment: { Negative: 310, Neutral: 25, Positive: 7 },
+    examples: [
+      { ocvId: 'fdcl_v4_abc123', paraphrase: 'User wrote in English but got a Spanish response in Elaborate.' },
+      { ocvId: 'fdcl_v4_def456', paraphrase: 'Compose draft came back in French despite German UI settings.' },
+    ],
+  },
+]);
+
+// 4. Add flagged items
+mw.addFlaggedItems(manifest, [
+  {
+    reason: 'Competitor mentions',
+    ocvIds: ['fdcl_v4_x1', 'fdcl_v4_x2'],
+    paraphrase: 'Users mention switching to Gmail/Gemini due to repeated language issues.',
+  },
+]);
+
+// 5. Add executive summary
+mw.addExecutiveSummary(manifest, 'The executive summary text...');
+
+// 6. Write to data/manifests/
+const outputPath = mw.defaultManifestPath(csvPath);
+mw.writeManifest(manifest, outputPath);
+```
+
+**Manifest output path**: `data/manifests/<csv_basename>_manifest.json`
+
+**Paraphrase generation**: During Pass 2 theme discovery, for each theme's top 3-5 example items, generate a **1-sentence AI paraphrase** that captures the gist without reproducing the user's words verbatim. The paraphrase should be written in PM voice (e.g., "User reports Copilot responded in wrong language when using Elaborate on Win32").
+
+**Important**: The manifest must contain **NO raw customer content** — no verbatim Comment text, no PromptInEnglish, no ResponseInEnglish. Only OcvIds (system identifiers) and AI-generated paraphrases.
+
+Tell the user the manifest path when done.
+
+### 12. Post-analysis cleanup
+
+**After analysis and PPTX generation are both complete**, prompt the user to delete the source CSV:
+
+> "Analysis complete. The manifest has been saved to `data/manifests/<name>.json` with [N] themes and [M] flagged items.
+>
+> The source CSV `<filename>` contains raw customer content. Delete it now? (y/n)"
+
+- If confirmed: delete the CSV and run `mw.markCsvDeleted(manifestPath)` to update the manifest
+- If declined: warn that raw data persists, note in the manifest that `csvDeleted: false`
+
+The user can also clean up later with:
+```bash
+node scripts/cleanup_csvs.js                    # scan for old CSVs
+node scripts/cleanup_csvs.js --all-manifests     # clean up all analyzed CSVs
+node scripts/cleanup_csvs.js --manifest <path>   # clean up one specific CSV
+```
 
 ## Tone and voice
 

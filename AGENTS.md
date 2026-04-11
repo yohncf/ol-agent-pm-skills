@@ -52,7 +52,14 @@ This applies to all AI-generated analysis in this repo — skill invocations, ad
 
 ## Data Storage
 
-Daily extractions go to `data/ocv_<area>_YYYY-MM-DD.csv`. Ad hoc runs with longer ranges use `data/ocv_<area>_YYYY-MM-DD_<filter>.csv` (e.g., `ocv_accounts_2026-02-27_7d.csv`).
+CSVs are **temporary artifacts** that should be cleaned up after analysis.
+
+**Lifecycle**: Extract → CSV (temporary) → Analyze → Manifest JSON (permanent) → Delete CSV
+
+- Daily extractions go to `data/ocv_<area>_YYYY-MM-DD.csv`. Ad hoc runs use `data/ocv_<area>_YYYY-MM-DD_<filter>.csv`.
+- Analysis manifests go to `data/manifests/<name>_manifest.json`. Manifests contain aggregate stats, themes with counts, OcvId pointers, and AI-generated paraphrases — **no raw customer content**.
+- After analysis, run `npm run cleanup` or `node scripts/cleanup_csvs.js` to delete source CSVs.
+- The cleanup script also supports `--all-manifests` to scan all manifests and `--manifest <path>` for a specific one.
 
 ## ODS Ticket Extraction
 

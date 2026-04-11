@@ -37,7 +37,9 @@ Extract two values from the user's prompt:
    cd <project-root> && node scripts/extract_standalone.js --config "configs/<area-name>.json" --date <filter> --summary "data/<output-file>"
    ```
 
-   **Optional flag:** `--include-structured` — includes feedback submissions without verbatim text (thumbs up/down only). By default, these are excluded. Use this flag when you need sentiment metrics comparable to the OCV Discover dashboard.
+   **Optional flags:**
+   - `--include-structured` — includes feedback submissions without verbatim text (thumbs up/down only). By default, these are excluded. Use this flag when you need sentiment metrics comparable to the OCV Discover dashboard.
+   - `--no-cleanup` — skips the interactive CSV cleanup prompt after extraction. Use this when running non-interactively.
 
 6. **If the extraction fails** (browser timeout, SSO redirect stuck, page didn't load, or 0 items returned), automatically retry:
    - Delete the browser profile: `Remove-Item -Recurse -Force "<project-root>/.browser-profile"`
@@ -49,6 +51,22 @@ Extract two values from the user's prompt:
    - The summary stats printed by `--summary` (counts, sentiment/intent/category breakdowns)
    - The output CSV path for detailed review in Excel
    - First run: Edge opens for SSO login. Subsequent runs are automatic.
+   - **Remind**: "The CSV contains raw customer content. Run the `ocv-analyze` skill to produce a manifest, then clean up the CSV with `node scripts/cleanup_csvs.js`."
+
+## Data lifecycle
+
+CSVs are **temporary artifacts** — they exist to support analysis and should be cleaned up afterward.
+
+```
+Extract → CSV (temporary, contains customer content)
+   ↓
+Analyze → Manifest JSON (permanent, no customer content)
+   ↓         + PPTX report (generated before cleanup)
+   ↓         + Markdown summary
+Cleanup → Delete CSV (prompted, updates manifest)
+```
+
+The manifest at `data/manifests/<name>_manifest.json` preserves all analytical value (themes, counts, OcvId pointers, AI paraphrases, aggregate stats) without retaining verbatim text. Use the `ocv-analyze` skill to generate it.
 
 ## CSV Columns
 
@@ -64,6 +82,7 @@ Extract two values from the user's prompt:
 | Language | Language code (en, de, fr, etc.) |
 | Noise | "true" if matched a noise pattern; empty otherwise |
 | AreaPath | OCV area hierarchy (pipe-delimited) |
+| Audience | `Internal` (Microsoft employees) or `External` |
 
 ## COMPLIANCE
 

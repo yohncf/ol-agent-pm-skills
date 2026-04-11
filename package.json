@@ -9,7 +9,8 @@
     "extract": "node scripts/extract_standalone.js",
     "extract:accounts": "node scripts/extract_standalone.js --config configs/accounts.json --date yesterday --summary",
     "extract:7d": "node scripts/extract_standalone.js --config configs/accounts.json --date 7d --summary",
-    "check": "node scripts/preflight.js"
+    "check": "node scripts/preflight.js",
+    "cleanup": "node scripts/cleanup_csvs.js"
   },
   "dependencies": {
     "playwright": "^1.50.0"

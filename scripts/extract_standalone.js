@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // OCV Standalone Extraction Script
 // Requires: Node.js 18+, Playwright, Microsoft Edge
-// Usage: node scripts/extract_standalone.js [--config <config.json>] [--url <ocv-url>] [output.csv] [--date <value>] [--include-structured]
+// Usage: node scripts/extract_standalone.js [--config <config.json>] [--url <ocv-url>] [output.csv] [--date <value>] [--include-structured] [--no-cleanup]
 //
 // Config-driven extraction. Each area (Accounts, Calendar, Copilot, etc.) has its own
 // config file in configs/ that defines the OCV URL, category keywords, feature tags,
@@ -75,6 +75,9 @@ if (weeklySummaryFlag) rawArgs.splice(rawArgs.indexOf('--weekly-summary'), 1);
 const includeStructured = rawArgs.includes('--include-structured') || rawArgs.includes('--include-blank');
 if (rawArgs.includes('--include-structured')) rawArgs.splice(rawArgs.indexOf('--include-structured'), 1);
 if (rawArgs.includes('--include-blank')) rawArgs.splice(rawArgs.indexOf('--include-blank'), 1);
+
+const noCleanup = rawArgs.includes('--no-cleanup');
+if (noCleanup) rawArgs.splice(rawArgs.indexOf('--no-cleanup'), 1);
 
 // Remaining positional args: [output.csv]
 const outputFile = rawArgs[0] || `ocv_extract_${new Date().toISOString().slice(0, 10)}.csv`;
@@ -183,7 +186,7 @@ const OFFSET_MAP = {
   'all': { relDateType: 'all', offset: 0 },
 };
 
-const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Scenario,Category,Language,Noise,AreaPath,Client,Rating';
+const CSV_HEADER = 'Date,Comment,Provider,Sentiment,Intent,Feature,Scenario,Category,Language,Noise,AreaPath,Client,Rating,OcvId,CmmId,SourceContext,EntryPoint,SubFeature,SentimentThemes,CopilotIntent,ACRUE,RawFeatureName,RawFeatureArea,RawPlatform,Endpoint,Application,FeedbackType,RawAppData,PlatformExternal,UserAgent,SdkVersion,PromptInEnglish,ResponseInEnglish,Audience';
 
 // --- CSV Helpers ---
 
@@ -221,7 +224,34 @@ function resolveProvider(email) {
   return domainMap[domain] || REDACTED_LABEL;
 }
 
-function parseHit(src) {
+const MSFT_DOMAINS = new Set(['microsoft.com', 'ntdev.microsoft.com', 'xbox.com', 'linkedin.com']);
+
+function classifyAudience(email) {
+  if (!email) return '';
+  const atIdx = email.lastIndexOf('@');
+  if (atIdx === -1) return '';
+  const domain = email.slice(atIdx + 1).toLowerCase().trim();
+  return MSFT_DOMAINS.has(domain) ? 'Internal' : 'External';
+}
+
+// Extract deduplicated part values from a Classification entry
+function extractClassParts(c) {
+  if (c.Tags && c.Tags.length > 0) return [...new Set(c.Tags)];
+  if (c.LabelGroupings) {
+    const parts = [];
+    for (const lg of c.LabelGroupings) {
+      if (lg.Parts) {
+        for (const p of lg.Parts) {
+          if (p.Value) parts.push(p.Value);
+        }
+      }
+    }
+    return [...new Set(parts)];
+  }
+  return [];
+}
+
+function parseHit(src, ocvId) {
   // Comment: prefer translated (English) PII-redacted text
   const comment = src.TranslatedTextPiiRedacted || src.OriginalTextPiiRedacted
     || src.TranslatedText || src.OriginalText || src.CustomerVerbatimOriginal || '';
@@ -246,6 +276,9 @@ function parseHit(src) {
   // Provider: email domain → whitelist lookup
   const provider = resolveProvider(src.Email);
 
+  // Audience: Internal (microsoft.com) vs External
+  const audience = classifyAudience(src.Email);
+
   // Area path: extract from OcvAreas for cross-area analysis
   let areaPath = '';
   if (src.OcvAreas && Array.isArray(src.OcvAreas)) {
@@ -253,9 +286,12 @@ function parseHit(src) {
     areaPath = paths.join('|');
   }
 
-  // Sentiment + Intent: from Classifications array
+  // Sentiment + Intent + Classifier metadata: from Classifications array
   let sentiment = '';
   let intent = '';
+  let sentimentThemes = '';
+  let copilotIntent = '';
+  let acrue = '';
   if (src.Classifications && Array.isArray(src.Classifications)) {
     for (const c of src.Classifications) {
       if (c.Name === 'Text Sentiment' && c.Tags && c.Tags.length > 0) {
@@ -263,6 +299,15 @@ function parseHit(src) {
       }
       if (c.Name === 'Text Intent' && c.Tags && c.Tags.length > 0) {
         intent = c.Tags[0];
+      }
+      if (c.Name === 'Copilot Sentiment Themes') {
+        sentimentThemes = extractClassParts(c).join('|');
+      }
+      if (c.Name === 'Copilot Canonical Intents') {
+        copilotIntent = extractClassParts(c).join('|');
+      }
+      if (c.Name === 'ACRUE') {
+        acrue = extractClassParts(c).join('|');
       }
     }
   }
@@ -282,9 +327,105 @@ function parseHit(src) {
   let client = '';
   const platform = (src.Platform || '').toLowerCase();
 
-  // Scenario: raw FeatureName from OCV (the featureArea used in the query)
-  const scenario = src.FeatureName || '';
-  if (/windows\s*desktop|win32|win64/.test(platform)) client = 'Desktop';
+  // Scenario: raw FeatureName from OCV; fall back to FeatureArea if FeatureName is empty.
+  // "Theming" is a known Monarch client bug — FeatureName is set to "Theming" for all DAB
+  // interactions regardless of actual scenario. Fall back to FeatureArea in that case.
+  let scenario = src.FeatureName || src.FeatureArea || '';
+  if (scenario === 'Theming') {
+    scenario = src.FeatureArea || 'Theming';
+  }
+
+  // CmmId: extract from AppData JSON (scenario identifier, not PII)
+  let cmmId = '';
+  let appDataParsed = {};
+  if (src.AppData) {
+    try {
+      appDataParsed = typeof src.AppData === 'string' ? JSON.parse(src.AppData) : src.AppData;
+      cmmId = appDataParsed.Cmmid || appDataParsed.cmmId || appDataParsed.CmmId || appDataParsed.CMMID || '';
+    } catch {}
+  }
+
+  // Scenario override: CMMId-based items often have misleading FeatureName (e.g., "Theming")
+  // Source: ScenarioCMMIds.ts (OWA), PKM365InvokeChatScenario+FromCode.swift (iOS), ChatIntentBuilder.kt (Android)
+  const CMMID_SCENARIO_MAP = {
+    // Compose / Vibe Writing
+    'cmmyz8p6paw': 'VibeWriting',
+    'cmmq2silgi7': 'VibeWritingReply',
+    'cmmeiat63t6': 'StartChatDraft',
+    // Mobile-native SUAs
+    'cmmj1vx5zke': 'CalendarTopThree',
+    'cmmuwjzeuoy': 'InboxBriefingMorning',
+    'cmmtw8e0u46': 'InboxBriefingEvening',
+    'cmmil8c3lm6': 'VoiceCatchup',
+    'cmmjskixxn0': 'TodaysPlan',
+    // Attachment Summarization
+    'cmmaii3bpr3': 'AttachmentSummary',
+    'cmm0qu0dq94': 'AttachmentSummary',
+    'cmmtxb10jc3': 'AttachmentSummary',
+    'cmmeqyuilr4': 'AttachmentSummary',
+    'cmmoewnwc3d': 'AttachmentSummary',
+    'cmmtjb5s87j': 'AttachmentSummary',
+    'cmmk62sxys0': 'AttachmentSummary',
+    'cmmuntkm37u': 'AttachmentSummary',
+    // Search
+    'cmm847v5ypw': 'SearchSuggestions',
+    'cmmr8vd788b': 'SearchSuggestions',
+    // Calendar
+    'cmm6dymueiy': 'CalendarImmersiveSearch',
+    'cmmlaqq6pcx': 'MeetingPrep',
+    'cmmsydqyyio': 'CalendarDraftAssistant',
+    'cmmp0zg5aes': 'MeetingAssistant',
+    'cmm6vifevnf': 'ScheduleFromEmail',
+    'cmmeek7bcwh': 'CalendarTopPriorities',
+    'cmmbuv6hz0j': 'CalendarInstructions',
+    'cmmnuszr5mh': 'CalendarInstructions',
+    'cmmbm8ohwah': 'CalendarInstructions',
+    'cmmbxdghsq4': 'CalendarInstructions',
+    'cmmzbgobp81': 'CalendarInstructions',
+    'cmmuzd535im': 'CalendarInstructions',
+    'cmmi3ec0b43': 'CalendarInstructions',
+    'cmm5b3f2pw4': 'CalendarInstructions',
+    'cmmwtssir2n': 'CalendarInstructions',
+    'cmmz2d4s9vq': 'CalendarInstructions',
+    'cmm4o76y4u5': 'CalendarInstructions',
+    'cmmfl2azi95': 'CalendarInstructions',
+    // Other
+    'cmmgd9favq8': 'Insights',
+    'cmm37ofay86': 'NotificationsSummarize',
+  };
+  if (cmmId && CMMID_SCENARIO_MAP[cmmId]) {
+    scenario = CMMID_SCENARIO_MAP[cmmId];
+  }
+
+  // Priority 0: Product field is the simplest Monarch signal (available in ES API + OCV Discover).
+  const product = (src.Product || '').toLowerCase();
+
+  if (/windows\s*desktop|win32|win64/.test(platform)) {
+    // Distinguish Monarch (New Outlook) from Win32 (Classic Outlook) on Windows Desktop.
+    // Priority 0: Product="Outlook Monarch" is definitive when present.
+    // Priority 1: AppData.UiHost/clientName (DAB/BizChat items).
+    // Priority 2: PlatformExternal + SdkVersion (on-canvas items).
+    const uiHost = (appDataParsed.UiHost || '').toLowerCase();
+    const clientName = (appDataParsed.clientName || '').toLowerCase();
+    const platExt = (src.PlatformExternal || '').toLowerCase();
+    const sdkVer = (src.SdkVersion || '').toLowerCase();
+
+    if (product.includes('outlook monarch')) {
+      client = 'Desktop (Monarch)';
+    } else if (product === 'outlook' && !product.includes('monarch')) {
+      client = 'Desktop (Win32)';
+    } else if (uiHost.includes('monarch') || clientName.includes('monarch')) {
+      client = 'Desktop (Monarch)';
+    } else if (uiHost.includes('classic') || clientName.includes('outlookocv')) {
+      client = 'Desktop (Win32)';
+    } else if (platExt === 'web' || sdkVer.includes('scc-react-feedback-plugin')) {
+      client = 'Desktop (Monarch)';
+    } else if (platExt === 'windows desktop' || platExt === 'windows' || sdkVer.includes('mso v')) {
+      client = 'Desktop (Win32)';
+    } else {
+      client = 'Desktop';
+    }
+  }
   else if (/\bweb\b|owa|browser/.test(platform)) client = 'OWA';
   else if (/\bmac\b|macos|osx/.test(platform)) client = 'Mac';
   else if (/ios|iphone|ipad/.test(platform)) client = 'Mobile (iOS)';
@@ -295,6 +436,20 @@ function parseHit(src) {
   // Rating: user's thumbs up/down from OCV feedback fields
   const rating = src.FeedbackRating ?? src.OriginalRating ?? src.FeedbackScore ?? '';
   const feedbackType = src.FeedbackType || '';
+
+  const sourceContext = src.SourceContext || '';
+  const entryPoint = src.AppEntryPoint || src.EntryPoint || '';
+  const subFeature = src.SubFeatureName || '';
+
+  // Raw metadata for diagnostic/cross-reference (non-PII)
+  const rawAppData = src.AppData
+    ? (typeof src.AppData === 'string' ? src.AppData : JSON.stringify(src.AppData))
+    : '';
+
+  // AI context: prompt and response (English translations, for bug investigation)
+  const aiContext = src.AiContext || {};
+  const promptInEnglish = aiContext.PromptInEnglish || '';
+  const responseInEnglish = aiContext.ResponseMessageInEnglish || '';
 
   return {
     date,
@@ -310,6 +465,27 @@ function parseHit(src) {
     areaPath,
     client,
     rating: feedbackType || String(rating),
+    ocvId: ocvId || '',
+    cmmId,
+    sourceContext,
+    entryPoint,
+    subFeature,
+    sentimentThemes,
+    copilotIntent,
+    acrue,
+    rawFeatureName: src.FeatureName || '',
+    rawFeatureArea: src.FeatureArea || '',
+    rawPlatform: src.Platform || '',
+    endpoint: src.Endpoint || src.EndPoint || '',
+    application: src.Application || '',
+    feedbackType,
+    rawAppData,
+    platformExternal: src.PlatformExternal || '',
+    userAgent: src.UserAgent || '',
+    sdkVersion: src.SdkVersion || '',
+    promptInEnglish,
+    responseInEnglish,
+    audience,
   };
 }
 
@@ -326,12 +502,32 @@ function scrubPII(results) {
 
   for (const item of results) {
     for (const { regex, replacement, type } of patterns) {
+      // Scrub comment
       regex.lastIndex = 0;
       const matches = item.comment.match(regex);
       if (matches) {
         stats[type] += matches.length;
         stats.total += matches.length;
         item.comment = item.comment.replace(regex, replacement);
+      }
+      // Scrub prompt and response (same PII patterns)
+      if (item.promptInEnglish) {
+        regex.lastIndex = 0;
+        const pMatches = item.promptInEnglish.match(regex);
+        if (pMatches) {
+          stats[type] += pMatches.length;
+          stats.total += pMatches.length;
+          item.promptInEnglish = item.promptInEnglish.replace(regex, replacement);
+        }
+      }
+      if (item.responseInEnglish) {
+        regex.lastIndex = 0;
+        const rMatches = item.responseInEnglish.match(regex);
+        if (rMatches) {
+          stats[type] += rMatches.length;
+          stats.total += rMatches.length;
+          item.responseInEnglish = item.responseInEnglish.replace(regex, replacement);
+        }
       }
     }
   }
@@ -464,7 +660,7 @@ async function extractViaAPI(page, capturedQuery, capturedHeaders) {
     for (const hit of hits) {
       const src = hit._source;
       if (!src) continue;
-      const item = parseHit(src);
+      const item = parseHit(src, hit._id);
       if (item) {
         allItems.push(item);
       } else {
@@ -527,6 +723,7 @@ async function extractViaDOM(page) {
     language: '',
     noise: detectNoise(item.comment),
     areaPath: '',
+    ocvId: '',
   }));
 }
 
@@ -659,7 +856,7 @@ async function main() {
 
     console.log('Navigating to OCV...');
     if (dateArg) console.log(`Date filter: --date ${dateArg}`);
-    await page.goto(navUrl, { waitUntil: 'networkidle', timeout: 60000 });
+    await page.goto(navUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
 
     // Step 3: Wait for auth
     console.log('Waiting for OCV to load (complete SSO login if prompted)...');
@@ -720,7 +917,13 @@ async function main() {
     // Step 8: Write CSV
     const rows = results.map(item =>
       [item.date, item.comment, item.provider, item.sentiment, item.intent,
-       item.feature, item.scenario || '', item.category, item.language, item.noise, item.areaPath || '', item.client || '', item.rating || '']
+       item.feature, item.scenario || '', item.category, item.language, item.noise, item.areaPath || '', item.client || '', item.rating || '', item.ocvId || '',
+       item.cmmId || '', item.sourceContext || '', item.entryPoint || '', item.subFeature || '',
+       item.sentimentThemes || '', item.copilotIntent || '', item.acrue || '',
+       item.rawFeatureName || '', item.rawFeatureArea || '', item.rawPlatform || '',
+       item.endpoint || '', item.application || '', item.feedbackType || '', item.rawAppData || '',
+       item.platformExternal || '', item.userAgent || '', item.sdkVersion || '',
+       item.promptInEnglish || '', item.responseInEnglish || '', item.audience || '']
         .map(csvEscape).join(',')
     );
     const csv = [CSV_HEADER, ...rows].join('\n');
@@ -821,6 +1024,12 @@ async function main() {
     // Step 10: Generate weekly summary markdown (--weekly-summary flag)
     if (weeklySummaryFlag && results.length > 0) {
       generateWeeklySummary(results, config, piiStats);
+    }
+
+    // Step 11: Cleanup old verbatim CSVs
+    if (!noCleanup) {
+      const { postExtractionCleanup } = require('./cleanup_csvs');
+      await postExtractionCleanup(outputPath);
     }
 
   } catch (err) {
