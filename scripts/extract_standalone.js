@@ -325,25 +325,75 @@ function parseHit(src, ocvId) {
   }
 
   // Scenario override: CMMId-based items often have misleading FeatureName (e.g., "Theming")
+  // Source: ScenarioCMMIds.ts (OWA), PKM365InvokeChatScenario+FromCode.swift (iOS), ChatIntentBuilder.kt (Android)
   const CMMID_SCENARIO_MAP = {
+    // Compose / Vibe Writing
     'cmmyz8p6paw': 'VibeWriting',
     'cmmq2silgi7': 'VibeWritingReply',
+    'cmmeiat63t6': 'StartChatDraft',
+    // Mobile-native SUAs
+    'cmmj1vx5zke': 'CalendarTopThree',
+    'cmmuwjzeuoy': 'InboxBriefingMorning',
+    'cmmtw8e0u46': 'InboxBriefingEvening',
+    'cmmil8c3lm6': 'VoiceCatchup',
+    'cmmjskixxn0': 'TodaysPlan',
+    // Attachment Summarization
+    'cmmaii3bpr3': 'AttachmentSummary',
+    'cmm0qu0dq94': 'AttachmentSummary',
+    'cmmtxb10jc3': 'AttachmentSummary',
+    'cmmeqyuilr4': 'AttachmentSummary',
+    'cmmoewnwc3d': 'AttachmentSummary',
+    'cmmtjb5s87j': 'AttachmentSummary',
+    'cmmk62sxys0': 'AttachmentSummary',
+    'cmmuntkm37u': 'AttachmentSummary',
+    // Search
+    'cmm847v5ypw': 'SearchSuggestions',
+    'cmmr8vd788b': 'SearchSuggestions',
+    // Calendar
+    'cmm6dymueiy': 'CalendarImmersiveSearch',
+    'cmmlaqq6pcx': 'MeetingPrep',
+    'cmmsydqyyio': 'CalendarDraftAssistant',
+    'cmmp0zg5aes': 'MeetingAssistant',
+    'cmm6vifevnf': 'ScheduleFromEmail',
+    'cmmeek7bcwh': 'CalendarTopPriorities',
+    'cmmbuv6hz0j': 'CalendarInstructions',
+    'cmmnuszr5mh': 'CalendarInstructions',
+    'cmmbm8ohwah': 'CalendarInstructions',
+    'cmmbxdghsq4': 'CalendarInstructions',
+    'cmmzbgobp81': 'CalendarInstructions',
+    'cmmuzd535im': 'CalendarInstructions',
+    'cmmi3ec0b43': 'CalendarInstructions',
+    'cmm5b3f2pw4': 'CalendarInstructions',
+    'cmmwtssir2n': 'CalendarInstructions',
+    'cmmz2d4s9vq': 'CalendarInstructions',
+    'cmm4o76y4u5': 'CalendarInstructions',
+    'cmmfl2azi95': 'CalendarInstructions',
+    // Other
+    'cmmgd9favq8': 'Insights',
+    'cmm37ofay86': 'NotificationsSummarize',
   };
   if (cmmId && CMMID_SCENARIO_MAP[cmmId]) {
     scenario = CMMID_SCENARIO_MAP[cmmId];
   }
 
+  // Priority 0: Product field is the simplest Monarch signal (available in ES API + OCV Discover).
+  const product = (src.Product || '').toLowerCase();
+
   if (/windows\s*desktop|win32|win64/.test(platform)) {
     // Distinguish Monarch (New Outlook) from Win32 (Classic Outlook) on Windows Desktop.
-    // Monarch feedback goes through web SDK (scc-react-feedback-plugin, PlatformExternal=Web).
-    // Win32 feedback goes through native SDK (InAppFeedback HVC or MSO, PlatformExternal=Windows/Windows Desktop).
-    // DAB/BizChat items have AppData.UiHost for definitive identification.
+    // Priority 0: Product="Outlook Monarch" is definitive when present.
+    // Priority 1: AppData.UiHost/clientName (DAB/BizChat items).
+    // Priority 2: PlatformExternal + SdkVersion (on-canvas items).
     const uiHost = (appDataParsed.UiHost || '').toLowerCase();
     const clientName = (appDataParsed.clientName || '').toLowerCase();
     const platExt = (src.PlatformExternal || '').toLowerCase();
     const sdkVer = (src.SdkVersion || '').toLowerCase();
 
-    if (uiHost.includes('monarch') || clientName.includes('monarch')) {
+    if (product.includes('outlook monarch')) {
+      client = 'Desktop (Monarch)';
+    } else if (product === 'outlook' && !product.includes('monarch')) {
+      client = 'Desktop (Win32)';
+    } else if (uiHost.includes('monarch') || clientName.includes('monarch')) {
       client = 'Desktop (Monarch)';
     } else if (uiHost.includes('classic') || clientName.includes('outlookocv')) {
       client = 'Desktop (Win32)';
