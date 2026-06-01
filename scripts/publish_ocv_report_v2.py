@@ -245,6 +245,8 @@ def compute_priority_card(sub_rows: List[dict], prior_sub_rows: List[dict]) -> d
 # Section renderers (each returns HTML for a single <section>)
 # ---------------------------------------------------------------------------
 def render_dataset_card(manifest: dict) -> str:
+    """Three small M3 cards (pill-style vertical lists) in a responsive grid:
+    Submissions, Sentiment & Rating, Clients & languages."""
     total = int(manifest.get("total_items", 0) or 0)
     verb = int(manifest.get("verbatim_items", 0) or 0)
     struct = int(manifest.get("structured_only_items", 0) or 0)
@@ -255,47 +257,128 @@ def render_dataset_card(manifest: dict) -> str:
 
     def pct(n, base): return f"{(100.0*n/base):.1f}%" if base else "—"
 
+    def pill_row(label: str, value: str, share: str = "", tone: str = "neutral") -> str:
+        tone_cls = {"pos": "pill--pos", "neg": "pill--neg", "neutral": "pill--neutral"}[tone]
+        share_html = f'<span class="pill__share label-medium">{html.escape(share)}</span>' if share else ""
+        return (
+            f'<li class="pill">'
+            f'<span class="pill__dot {tone_cls}"></span>'
+            f'<span class="pill__label body-medium">{html.escape(label)}</span>'
+            f'<span class="pill__value title-medium">{html.escape(value)}</span>'
+            f'{share_html}'
+            f'</li>'
+        )
+
+    submissions_items = [
+        pill_row("Total submissions", f"{total:,}", "", "neutral"),
+        pill_row("With verbatim", f"{verb:,}", pct(verb, total), "pos"),
+        pill_row("No verbatim (unscored)", f"{struct:,}", pct(struct, total), "neutral"),
+    ]
+
     sent_scored = sum(int(v) for v in sentiment.values())
-    rating_total = int(rating.get("ThumbsUp", 0) or 0) + int(rating.get("ThumbsDown", 0) or 0)
-
-    def row(label, items):
-        cells = "".join(f'<td class="cell">{html.escape(k)}<br><span class="cell-sub">{v:,} · {pct(v, base)}</span></td>'
-                        for (k, v, base) in items)
-        return f"<tr><th class='row-head'>{label}</th>{cells}</tr>"
-
-    sent_items = []
+    voice_items = []
     if sent_scored:
+        tone_map = {"Negative": "neg", "Positive": "pos", "Neutral": "neutral"}
         for k in ("Negative", "Positive", "Neutral"):
             v = int(sentiment.get(k, 0) or 0)
-            if v: sent_items.append((k, v, sent_scored))
-
-    client_items = [(k, int(v), total) for k, v in sorted(clients.items(), key=lambda kv: -int(kv[1]))]
-    lang_items   = [(k, int(v), total) for k, v in sorted(languages.items(), key=lambda kv: -int(kv[1]))[:4]]
-
-    rows_html = [
-        f"<tr><th class='row-head'>Total submissions</th><td class='cell'>{total:,}</td></tr>",
-        f"<tr><th class='row-head'>With verbatim</th><td class='cell'>{verb:,}<br><span class='cell-sub'>{pct(verb,total)}</span></td><td class='cell'>No verbatim (unscored)<br><span class='cell-sub'>{struct:,} · {pct(struct,total)}</span></td></tr>",
-    ]
-    if sent_items:
-        rows_html.append(row("Sentiment (verbatim slice)", sent_items))
+            if v:
+                voice_items.append(pill_row(k, f"{v:,}", pct(v, sent_scored), tone_map.get(k, "neutral")))
+    rating_total = int(rating.get("ThumbsUp", 0) or 0) + int(rating.get("ThumbsDown", 0) or 0)
     if rating_total:
-        rt = [("Thumbs up", int(rating.get('ThumbsUp', 0) or 0), rating_total),
-              ("Thumbs down", int(rating.get('ThumbsDown', 0) or 0), rating_total)]
-        rows_html.append(row("Rating (all submissions)", rt))
-    if client_items: rows_html.append(row("Client", client_items))
-    if lang_items:   rows_html.append(row("Language", lang_items))
+        up = int(rating.get("ThumbsUp", 0) or 0)
+        dn = int(rating.get("ThumbsDown", 0) or 0)
+        voice_items.append(pill_row("Thumbs up", f"{up:,}", pct(up, rating_total), "pos"))
+        voice_items.append(pill_row("Thumbs down", f"{dn:,}", pct(dn, rating_total), "neg"))
 
+    surface_items = []
+    for k, v in sorted(clients.items(), key=lambda kv: -int(kv[1]))[:4]:
+        v = int(v)
+        surface_items.append(pill_row(k, f"{v:,}", pct(v, total), "neutral"))
+    for k, v in sorted(languages.items(), key=lambda kv: -int(kv[1]))[:3]:
+        v = int(v)
+        surface_items.append(pill_row(k, f"{v:,}", pct(v, total), "neutral"))
+
+    def mini_card(eyebrow: str, title: str, items: List[str]) -> str:
+        if not items:
+            return ""
+        return f"""
+        <div class="mini-card">
+          <div class="mini-card__eyebrow label-medium">{html.escape(eyebrow)}</div>
+          <div class="mini-card__title title-medium">{html.escape(title)}</div>
+          <ul class="pill-list">{''.join(items)}</ul>
+        </div>
+        """
+
+    cards = [
+        mini_card("Volume", "Submissions", submissions_items),
+        mini_card("Voice of customer", "Sentiment & rating", voice_items),
+        mini_card("Surface mix", "Clients & languages", surface_items),
+    ]
     return f"""
 <section id="dataset" class="report-card">
   <div class="section-eyebrow label-medium">03 · Dataset summary</div>
   <h2 class="section-title headline-medium">What was sampled</h2>
-  <div class="dataset-table-wrap">
-    <table class="dataset-table">
-      <tbody>{"".join(rows_html)}</tbody>
-    </table>
+  <div class="mini-card-grid">
+    {''.join(cards)}
   </div>
 </section>
 """
+
+
+def render_findings_cards(md: str) -> str:
+    """Render Key Findings markdown as M3 'finding cards' — one card per
+    top-level bullet, with the bold lead extracted as title, a Priority
+    chip when '(P0)'/'(P1)'/'(P2)' is present, and the rest as body."""
+    if not md:
+        return ""
+    bullets = []
+    current = []
+    for ln in md.splitlines():
+        if ln.startswith("- "):
+            if current:
+                bullets.append("\n".join(current).strip())
+            current = [ln[2:]]
+        elif ln.startswith("  ") and current:
+            current.append(ln[2:])
+        elif ln.strip() == "":
+            if current:
+                bullets.append("\n".join(current).strip())
+                current = []
+        else:
+            if current:
+                current.append(ln)
+    if current:
+        bullets.append("\n".join(current).strip())
+    if not bullets:
+        return md_to_html(md)
+
+    cards = []
+    for b in bullets:
+        lead = ""
+        body = b
+        m = re.match(r"^\*\*(.+?)\*\*\.?\s*(.*)$", b, flags=re.DOTALL)
+        if m:
+            lead = m.group(1).strip().rstrip(".")
+            body = m.group(2).strip()
+        prio_chip = ""
+        prio_class = ""
+        pm = re.search(r"\bP([0-3])\b", lead) or re.search(r"\bP([0-3])\b", body)
+        if pm:
+            pn = pm.group(1)
+            prio_class = f"finding-card--p{pn}"
+            prio_chip = f'<span class="prio-badge prio-p{pn}">P{pn}</span>'
+        title_html = md_inline(lead) if lead else md_inline(b)
+        body_html = md_inline(body) if (lead and body) else ""
+        cards.append(f"""
+        <div class="finding-card {prio_class}">
+          <div class="finding-card__head">
+            <div class="finding-card__title title-medium">{title_html}</div>
+            {prio_chip}
+          </div>
+          {f'<p class="finding-card__body body-medium">{body_html}</p>' if body_html else ''}
+        </div>
+        """)
+    return f'<div class="finding-list">{"".join(cards)}</div>'
 
 
 def render_topic_shifts(manifest: dict, prior: Optional[dict]) -> str:
@@ -308,22 +391,45 @@ def render_topic_shifts(manifest: dict, prior: Optional[dict]) -> str:
     if not all_tids:
         return ""
 
-    body = []
+    deltas_pp = []
     for tid in all_tids:
+        c_pct = 100.0 * cur.get(tid, 0) / cur_total
+        p_pct = 100.0 * pri.get(tid, 0) / pri_total if pri.get(tid, 0) else 0.0
+        deltas_pp.append(c_pct - p_pct)
+    max_abs = max((abs(d) for d in deltas_pp), default=1.0) or 1.0
+
+    body = []
+    for tid, delta_pp in zip(all_tids, deltas_pp):
         c = cur.get(tid, 0)
         p = pri.get(tid, 0)
         c_pct = 100.0 * c / cur_total
         p_pct = 100.0 * p / pri_total if p else 0.0
-        delta_pp = c_pct - p_pct
-        if abs(delta_pp) < 0.01: delta_cls, sign = "delta-flat", ""
-        elif delta_pp > 0:       delta_cls, sign = "delta-up", "+"
-        else:                    delta_cls, sign = "delta-down", ""
+        if abs(delta_pp) < 0.05:
+            chip_cls, icon, sign = "wow-chip--flat", "remove", ""
+        elif delta_pp > 0:
+            chip_cls, icon, sign = "wow-chip--up", "trending_up", "+"
+        else:
+            chip_cls, icon, sign = "wow-chip--down", "trending_down", ""
+        bar_pct = abs(delta_pp) / max_abs * 100.0
+        bar_dir = "wow-bar__fill--up" if delta_pp > 0 else ("wow-bar__fill--down" if delta_pp < 0 else "wow-bar__fill--flat")
+        delta_cell = f"""
+          <div class="wow-delta">
+            <span class="wow-chip {chip_cls}">
+              <span class="material-symbols-rounded">{icon}</span>
+              {sign}{delta_pp:.1f} pp
+            </span>
+            <div class="wow-bar" aria-hidden="true">
+              <span class="wow-bar__zero"></span>
+              <span class="wow-bar__fill {bar_dir}" style="width: {bar_pct:.1f}%;"></span>
+            </div>
+          </div>
+        """
         body.append(f"""
           <tr>
             <td class="topic-cell"><span class="topic-id">{tid}</span> {html.escape(TOPIC_NAMES.get(tid, f'Topic {tid}'))}</td>
             <td class="num">{c} <span class="cell-sub">({c_pct:.1f}%)</span></td>
             <td class="num">{p} <span class="cell-sub">({p_pct:.1f}%)</span></td>
-            <td class="num {delta_cls}">{sign}{delta_pp:.1f} pp</td>
+            <td class="wow-cell">{delta_cell}</td>
           </tr>
         """)
 
@@ -334,7 +440,7 @@ def render_topic_shifts(manifest: dict, prior: Optional[dict]) -> str:
   <h2 class="section-title headline-medium">WoW shifts vs week of {html.escape(prior_week)}</h2>
   <div class="data-table-wrap">
     <table class="data-table">
-      <thead><tr><th>Topic</th><th class="num">This week</th><th class="num">Last week</th><th class="num">Δ (pp)</th></tr></thead>
+      <thead><tr><th>Topic</th><th class="num">This week</th><th class="num">Last week</th><th class="wow-th">Δ vs last week</th></tr></thead>
       <tbody>{"".join(body)}</tbody>
     </table>
   </div>
@@ -370,35 +476,117 @@ def render_category_breakdown(manifest: dict) -> str:
 """
 
 
+# Curated palette inspired by Material 3 expressive accents (high contrast on
+# dark surfaces). Cycled through routing-path segments.
+_DONUT_PALETTE = [
+    "#a8c7fa",  # primary blue
+    "#a4ccaf",  # tertiary green
+    "#ffb4ab",  # error red
+    "#ffd1ac",  # warning amber
+    "#d7bbff",  # secondary purple
+    "#85d0e7",  # cyan
+    "#f6c1da",  # pink
+    "#bbc7db",  # secondary slate
+]
+
+
 def render_routing(manifest: dict) -> str:
     paths_block = manifest.get("paths") or {}
-    # Manifest stores routing as {"by_path": {...}, "unknown_or_missing": N}
     if isinstance(paths_block, dict) and "by_path" in paths_block:
         paths = paths_block.get("by_path") or {}
     else:
         paths = paths_block
     if not paths:
         return ""
-    total = sum(int(v) for v in paths.values()) or 1
-    rows = []
-    for k, v in sorted(paths.items(), key=lambda kv: -int(kv[1])):
-        rows.append(f"""
+    sorted_paths = sorted(paths.items(), key=lambda kv: -int(kv[1]))
+    total = sum(int(v) for _, v in sorted_paths) or 1
+
+    import math
+    cx, cy, r_outer, r_inner = 100, 100, 88, 56
+    segments_svg = []
+    legend_items = []
+    table_rows = []
+    cum = 0.0
+    for i, (k, v) in enumerate(sorted_paths):
+        v = int(v)
+        share = v / total
+        color = _DONUT_PALETTE[i % len(_DONUT_PALETTE)]
+        a0 = -math.pi / 2 + cum * 2 * math.pi
+        a1 = -math.pi / 2 + (cum + share) * 2 * math.pi
+        cum += share
+        large = 1 if (a1 - a0) > math.pi else 0
+        x0_out, y0_out = cx + r_outer * math.cos(a0), cy + r_outer * math.sin(a0)
+        x1_out, y1_out = cx + r_outer * math.cos(a1), cy + r_outer * math.sin(a1)
+        x0_in, y0_in = cx + r_inner * math.cos(a0), cy + r_inner * math.sin(a0)
+        x1_in, y1_in = cx + r_inner * math.cos(a1), cy + r_inner * math.sin(a1)
+        if share >= 0.999:
+            d = (
+                f"M {cx} {cy - r_outer} "
+                f"A {r_outer} {r_outer} 0 1 1 {cx - 0.01} {cy - r_outer} Z "
+                f"M {cx} {cy - r_inner} "
+                f"A {r_inner} {r_inner} 0 1 0 {cx - 0.01} {cy - r_inner} Z"
+            )
+        else:
+            d = (
+                f"M {x0_out:.3f} {y0_out:.3f} "
+                f"A {r_outer} {r_outer} 0 {large} 1 {x1_out:.3f} {y1_out:.3f} "
+                f"L {x1_in:.3f} {y1_in:.3f} "
+                f"A {r_inner} {r_inner} 0 {large} 0 {x0_in:.3f} {y0_in:.3f} "
+                f"Z"
+            )
+        segments_svg.append(
+            f'<path d="{d}" fill="{color}" class="donut-seg" '
+            f'data-label="{html.escape(k)}" data-count="{v}" data-pct="{share*100:.1f}%">'
+            f'<title>{html.escape(k)} · {v:,} · {share*100:.1f}%</title>'
+            f'</path>'
+        )
+        legend_items.append(
+            f'<li class="donut-legend__item">'
+            f'<span class="donut-legend__swatch" style="background:{color}"></span>'
+            f'<span class="donut-legend__label body-medium">{html.escape(k)}</span>'
+            f'<span class="donut-legend__share label-medium">{share*100:.1f}%</span>'
+            f'<span class="donut-legend__count body-small">{v:,}</span>'
+            f'</li>'
+        )
+        table_rows.append(f"""
           <tr>
-            <td class="mono">{html.escape(k)}</td>
-            <td class="num">{int(v):,}</td>
-            <td class="num"><span class="cell-sub">{100.0*int(v)/total:.1f}%</span></td>
+            <td><span class="donut-swatch" style="background:{color}"></span><span class="mono">{html.escape(k)}</span></td>
+            <td class="num">{v:,}</td>
+            <td class="num"><span class="cell-sub">{share*100:.1f}%</span></td>
           </tr>
         """)
+
+    top_label = html.escape(sorted_paths[0][0])
+    top_share = sorted_paths[0][1] / total * 100
     return f"""
 <section id="routing" class="report-card">
-  <div class="section-eyebrow label-medium">06b · Routing path</div>
+  <div class="section-eyebrow label-medium">06 · Routing path</div>
   <h2 class="section-title headline-medium">Which routing path is generating the most issues</h2>
-  <div class="data-table-wrap">
-    <table class="data-table">
-      <thead><tr><th>Path</th><th class="num">Count</th><th class="num">Share</th></tr></thead>
-      <tbody>{"".join(rows)}</tbody>
-    </table>
+  <div class="donut-layout">
+    <figure class="donut-figure" aria-label="Donut chart of routing-path distribution">
+      <svg viewBox="0 0 200 200" class="donut-svg" role="img" aria-hidden="false">
+        <title>Routing-path distribution</title>
+        {''.join(segments_svg)}
+        <text x="100" y="92" class="donut-center__num" text-anchor="middle">{total:,}</text>
+        <text x="100" y="112" class="donut-center__lbl" text-anchor="middle">items routed</text>
+      </svg>
+      <figcaption class="donut-caption body-small">
+        Top path: <strong>{top_label}</strong> · {top_share:.1f}%
+      </figcaption>
+    </figure>
+    <ul class="donut-legend">
+      {''.join(legend_items)}
+    </ul>
   </div>
+  <details class="donut-details">
+    <summary class="donut-details__summary label-medium">Full breakdown table</summary>
+    <div class="data-table-wrap" style="margin-top: 12px;">
+      <table class="data-table">
+        <thead><tr><th>Path</th><th class="num">Count</th><th class="num">Share</th></tr></thead>
+        <tbody>{''.join(table_rows)}</tbody>
+      </table>
+    </div>
+  </details>
 </section>
 """
 
@@ -869,6 +1057,166 @@ table.data-table, table.dataset-table {
   background: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-primary);
 }
+
+/* ===== Dataset mini-cards (3-pill vertical grid) ===== */
+.mini-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+.mini-card {
+  background: var(--md-sys-color-surface-container-low);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-corner-large);
+  padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.mini-card__eyebrow { color: var(--md-sys-color-on-surface-faint); }
+.mini-card__title { color: var(--md-sys-color-on-surface); margin-bottom: 4px; }
+.pill-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pill {
+  display: grid;
+  grid-template-columns: 8px 1fr auto auto;
+  align-items: center; gap: 10px;
+  padding: 8px 12px;
+  border-radius: 100px;
+  background: var(--md-sys-color-surface-container-high);
+}
+.pill__dot { width: 8px; height: 8px; border-radius: 50%; }
+.pill__dot.pill--pos { background: var(--md-sys-color-tertiary); }
+.pill__dot.pill--neg { background: var(--md-sys-color-error); }
+.pill__dot.pill--neutral { background: var(--md-sys-color-on-surface-faint); }
+.pill__label { color: var(--md-sys-color-on-surface); }
+.pill__value { color: var(--md-sys-color-on-surface); font-variant-numeric: tabular-nums; }
+.pill__share { color: var(--md-sys-color-on-surface-faint); }
+
+/* ===== Findings cards ===== */
+.finding-list { display: flex; flex-direction: column; gap: 12px; }
+.finding-card {
+  background: var(--md-sys-color-surface-container-low);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-left: 4px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--md-shape-corner-large);
+  padding: 16px 20px;
+}
+.finding-card--p0 { border-left-color: var(--md-sys-color-error); }
+.finding-card--p1 { border-left-color: #ffd1ac; }
+.finding-card--p2 { border-left-color: var(--md-sys-color-secondary); }
+.finding-card--p3 { border-left-color: var(--md-sys-color-on-surface-faint); }
+.finding-card__head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  margin-bottom: 6px;
+}
+.finding-card__title { color: var(--md-sys-color-on-surface); }
+.finding-card__body { color: var(--md-sys-color-on-surface-variant); margin: 0; }
+
+/* ===== WoW chip + magnitude bar ===== */
+.wow-th { text-align: left !important; padding-left: 16px; min-width: 220px; }
+.wow-cell { vertical-align: middle; }
+.wow-delta { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
+.wow-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  font-family: var(--font-mono); font-weight: 600; font-size: 12px;
+  width: fit-content;
+}
+.wow-chip .material-symbols-rounded { font-size: 14px; }
+.wow-chip--up   { background: var(--md-sys-color-error-container); color: var(--md-sys-color-error); }
+.wow-chip--down { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-tertiary); }
+.wow-chip--flat { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-secondary); }
+.wow-bar {
+  position: relative;
+  height: 6px; width: 100%;
+  background: var(--md-sys-color-surface-container-high);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.wow-bar__zero {
+  position: absolute; left: 50%; top: 0; bottom: 0; width: 1px;
+  background: var(--md-sys-color-outline-variant);
+}
+.wow-bar__fill {
+  position: absolute; top: 0; bottom: 0;
+  border-radius: 3px;
+  transition: width 400ms var(--md-easing-emphasized);
+}
+.wow-bar__fill--up   { left: 50%; background: var(--md-sys-color-error); }
+.wow-bar__fill--down { right: 50%; background: var(--md-sys-color-tertiary); }
+.wow-bar__fill--flat { left: 50%; background: var(--md-sys-color-secondary); width: 0 !important; }
+
+/* ===== Donut chart for routing paths ===== */
+.donut-layout {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  gap: 28px;
+  align-items: center;
+}
+@media (max-width: 720px) { .donut-layout { grid-template-columns: 1fr; } }
+.donut-figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.donut-svg { width: 220px; height: 220px; display: block; }
+.donut-seg {
+  transition: transform 220ms var(--md-easing-emphasized), opacity 200ms var(--md-easing-emphasized);
+  transform-origin: 100px 100px;
+  cursor: pointer;
+}
+.donut-svg:hover .donut-seg { opacity: 0.55; }
+.donut-svg .donut-seg:hover { opacity: 1; transform: scale(1.035); }
+.donut-center__num {
+  fill: var(--md-sys-color-on-surface);
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 500;
+}
+.donut-center__lbl {
+  fill: var(--md-sys-color-on-surface-variant);
+  font-family: var(--font-body);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.donut-caption { color: var(--md-sys-color-on-surface-variant); text-align: center; }
+.donut-caption strong { color: var(--md-sys-color-on-surface); }
+.donut-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.donut-legend__item {
+  display: grid;
+  grid-template-columns: 14px 1fr auto auto;
+  align-items: center; gap: 10px;
+  padding: 8px 12px;
+  border-radius: 100px;
+  background: var(--md-sys-color-surface-container-high);
+}
+.donut-legend__swatch {
+  width: 12px; height: 12px; border-radius: 3px;
+}
+.donut-legend__label  { color: var(--md-sys-color-on-surface); }
+.donut-legend__share  { color: var(--md-sys-color-on-surface); font-variant-numeric: tabular-nums; }
+.donut-legend__count  { color: var(--md-sys-color-on-surface-faint); font-variant-numeric: tabular-nums; }
+.donut-swatch {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 2px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.donut-details { margin-top: 20px; }
+.donut-details__summary {
+  cursor: pointer;
+  color: var(--md-sys-color-primary);
+  padding: 8px 14px;
+  border-radius: 100px;
+  background: var(--md-sys-color-primary-container);
+  display: inline-flex; align-items: center;
+  width: fit-content;
+  list-style: none;
+}
+.donut-details__summary::-webkit-details-marker { display: none; }
+.donut-details__summary::before {
+  content: "▸"; margin-right: 8px;
+  transition: transform 200ms var(--md-easing-emphasized);
+  display: inline-block;
+}
+.donut-details[open] .donut-details__summary::before { transform: rotate(90deg); }
 """
 
 
@@ -907,8 +1255,14 @@ def build_html(manifest: dict,
     tldr_md = md_sections.get("TL;DR", "")
     findings_md = md_sections.get("Key Findings", "")
 
+    # Strip the embedded "### Dataset Summary" (and any other H3 subsection)
+    # from the TL;DR markdown — we render Dataset as its own card from the
+    # manifest, so the H3 block is duplicate noise in the TL;DR card.
+    if tldr_md:
+        tldr_md = re.split(r"^###\s+", tldr_md, maxsplit=1, flags=re.MULTILINE)[0].rstrip()
+
     tldr_html = md_to_html(tldr_md) if tldr_md else '<p class="md-p body-medium">No TL;DR provided.</p>'
-    findings_html = md_to_html(findings_md) if findings_md else '<p class="md-p body-medium">No findings provided.</p>'
+    findings_html = render_findings_cards(findings_md) if findings_md else '<p class="md-p body-medium">No findings provided.</p>'
 
     dataset_html = render_dataset_card(manifest)
     topics_html = render_topic_shifts(manifest, prior_manifest)
@@ -956,6 +1310,7 @@ def build_html(manifest: dict,
     <main class="content">
       <section id="hero">
         <div class="hero-header" style="margin-bottom: 16px;">
+          <div class="section-eyebrow label-medium">02 · Headline numbers</div>
           <div class="hero-header__title headline-large">Week of {html.escape(date_range)}</div>
           <div class="hero-header__subtitle body-large">Customer-feedback signal · classified into 13-topic taxonomy</div>
         </div>
