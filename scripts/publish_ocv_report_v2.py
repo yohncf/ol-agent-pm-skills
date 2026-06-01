@@ -183,7 +183,7 @@ def compute_hero(manifest: dict, prior: Optional[dict]) -> List[dict]:
     return [
         {
             "icon": "sentiment_satisfied",
-            "label": "Positive rating",
+            "label": "Rating",
             "value": (f"{pos_pct:.1f}%" if pos_pct is not None else "—"),
             "chip": chip(pos_delta, lambda d: f"{'+' if d >= 0 else ''}{d:.1f} pp", lower_is_better=False),
             "caption": f"{tu:,} up · {td:,} down",
@@ -316,7 +316,7 @@ def render_dataset_card(manifest: dict) -> str:
     ]
     return f"""
 <section id="dataset" class="report-card">
-  <div class="section-eyebrow label-medium">03 · Dataset summary</div>
+  <div class="section-eyebrow label-medium">Dataset summary</div>
   <h2 class="section-title headline-medium">What was sampled</h2>
   <div class="mini-card-grid">
     {''.join(cards)}
@@ -396,7 +396,6 @@ def render_topic_shifts(manifest: dict, prior: Optional[dict]) -> str:
         c_pct = 100.0 * cur.get(tid, 0) / cur_total
         p_pct = 100.0 * pri.get(tid, 0) / pri_total if pri.get(tid, 0) else 0.0
         deltas_pp.append(c_pct - p_pct)
-    max_abs = max((abs(d) for d in deltas_pp), default=1.0) or 1.0
 
     body = []
     for tid, delta_pp in zip(all_tids, deltas_pp):
@@ -410,19 +409,11 @@ def render_topic_shifts(manifest: dict, prior: Optional[dict]) -> str:
             chip_cls, icon, sign = "wow-chip--up", "trending_up", "+"
         else:
             chip_cls, icon, sign = "wow-chip--down", "trending_down", ""
-        bar_pct = abs(delta_pp) / max_abs * 100.0
-        bar_dir = "wow-bar__fill--up" if delta_pp > 0 else ("wow-bar__fill--down" if delta_pp < 0 else "wow-bar__fill--flat")
         delta_cell = f"""
-          <div class="wow-delta">
             <span class="wow-chip {chip_cls}">
               <span class="material-symbols-rounded">{icon}</span>
               {sign}{delta_pp:.1f} pp
             </span>
-            <div class="wow-bar" aria-hidden="true">
-              <span class="wow-bar__zero"></span>
-              <span class="wow-bar__fill {bar_dir}" style="width: {bar_pct:.1f}%;"></span>
-            </div>
-          </div>
         """
         body.append(f"""
           <tr>
@@ -436,7 +427,7 @@ def render_topic_shifts(manifest: dict, prior: Optional[dict]) -> str:
     prior_week = (prior or {}).get("week", "—") if prior else "—"
     return f"""
 <section id="topics" class="report-card">
-  <div class="section-eyebrow label-medium">05 · Topic shifts (week over week)</div>
+  <div class="section-eyebrow label-medium">Topic shifts (week over week)</div>
   <h2 class="section-title headline-medium">WoW shifts vs week of {html.escape(prior_week)}</h2>
   <div class="data-table-wrap">
     <table class="data-table">
@@ -452,25 +443,36 @@ def render_category_breakdown(manifest: dict) -> str:
     cats = manifest.get("category_counts") or {}
     if not cats:
         return ""
-    total = sum(int(v) for v in cats.values()) or 1
+    sorted_cats = sorted(cats.items(), key=lambda kv: -int(kv[1]))
+    total = sum(int(v) for _, v in sorted_cats) or 1
+    max_count = int(sorted_cats[0][1]) if sorted_cats else 1
+
     rows = []
-    for k, v in sorted(cats.items(), key=lambda kv: -int(kv[1])):
+    for i, (k, v) in enumerate(sorted_cats):
+        v = int(v)
+        share = 100.0 * v / total
+        bar_pct = 100.0 * v / max_count if max_count else 0
+        color = _DONUT_PALETTE[i % len(_DONUT_PALETTE)]
         rows.append(f"""
-          <tr>
-            <td>{html.escape(k)}</td>
-            <td class="num">{int(v):,}</td>
-            <td class="num"><span class="cell-sub">{100.0*int(v)/total:.1f}%</span></td>
-          </tr>
+          <li class="cat-bar">
+            <div class="cat-bar__label body-medium">{html.escape(k)}</div>
+            <div class="cat-bar__track">
+              <span class="cat-bar__fill" style="width: {bar_pct:.1f}%; background: {color};"></span>
+              <span class="cat-bar__count title-medium">{v:,}</span>
+              <span class="cat-bar__share label-medium">{share:.1f}%</span>
+            </div>
+          </li>
         """)
+
+    top_label = html.escape(sorted_cats[0][0])
+    top_share = 100.0 * int(sorted_cats[0][1]) / total
     return f"""
 <section id="categories" class="report-card">
-  <div class="section-eyebrow label-medium">07 · Category breakdown</div>
+  <div class="section-eyebrow label-medium">Category breakdown</div>
   <h2 class="section-title headline-medium">Which surfaces are bearing the load</h2>
-  <div class="data-table-wrap">
-    <table class="data-table">
-      <thead><tr><th>Category</th><th class="num">Count</th><th class="num">Share</th></tr></thead>
-      <tbody>{"".join(rows)}</tbody>
-    </table>
+  <ul class="cat-bar-list">{''.join(rows)}</ul>
+  <div class="cat-bar-caption body-small">
+    Top surface: <strong>{top_label}</strong> · {top_share:.1f}% of categorized items · {total:,} categorized
   </div>
 </section>
 """
@@ -560,7 +562,7 @@ def render_routing(manifest: dict) -> str:
     top_share = sorted_paths[0][1] / total * 100
     return f"""
 <section id="routing" class="report-card">
-  <div class="section-eyebrow label-medium">06 · Routing path</div>
+  <div class="section-eyebrow label-medium">Routing path</div>
   <h2 class="section-title headline-medium">Which routing path is generating the most issues</h2>
   <div class="donut-layout">
     <figure class="donut-figure" aria-label="Donut chart of routing-path distribution">
@@ -657,7 +659,7 @@ def render_tickets(sub_rows: List[dict]) -> str:
 
     return f"""
 <section id="tickets">
-  <div class="section-eyebrow label-medium">08 · Ticket queue</div>
+  <div class="section-eyebrow label-medium">Ticket queue</div>
   <h2 class="section-title headline-medium">P0 / P1 / P2 rows worth engineering attention</h2>
   <p class="section-note body-medium">Showing top 12 rows by priority then prevalence. Click any row to expand.</p>
   <div class="ticket-list">{"".join(cards)}</div>
@@ -1110,40 +1112,65 @@ table.data-table, table.dataset-table {
 .finding-card__title { color: var(--md-sys-color-on-surface); }
 .finding-card__body { color: var(--md-sys-color-on-surface-variant); margin: 0; }
 
-/* ===== WoW chip + magnitude bar ===== */
-.wow-th { text-align: left !important; padding-left: 16px; min-width: 220px; }
+/* ===== WoW chip ===== */
+.wow-th { text-align: left !important; padding-left: 16px; min-width: 180px; }
 .wow-cell { vertical-align: middle; }
-.wow-delta { display: flex; flex-direction: column; gap: 6px; min-width: 180px; }
 .wow-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 10px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px;
   border-radius: 100px;
-  font-family: var(--font-mono); font-weight: 600; font-size: 12px;
+  font-family: var(--font-mono); font-weight: 600; font-size: 13px;
   width: fit-content;
 }
-.wow-chip .material-symbols-rounded { font-size: 14px; }
+.wow-chip .material-symbols-rounded { font-size: 18px; }
 .wow-chip--up   { background: var(--md-sys-color-error-container); color: var(--md-sys-color-error); }
 .wow-chip--down { background: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-tertiary); }
 .wow-chip--flat { background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-secondary); }
-.wow-bar {
+
+/* ===== Category breakdown horizontal bar chart ===== */
+.cat-bar-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.cat-bar {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 14px;
+  align-items: center;
+}
+.cat-bar__label { color: var(--md-sys-color-on-surface); text-align: right; }
+.cat-bar__track {
   position: relative;
-  height: 6px; width: 100%;
-  background: var(--md-sys-color-surface-container-high);
-  border-radius: 3px;
+  height: 36px;
+  background: var(--md-sys-color-surface-container-low);
+  border-radius: 100px;
   overflow: hidden;
+  display: flex; align-items: center;
 }
-.wow-bar__zero {
-  position: absolute; left: 50%; top: 0; bottom: 0; width: 1px;
-  background: var(--md-sys-color-outline-variant);
+.cat-bar__fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  border-radius: 100px;
+  opacity: 0.85;
+  transition: width 500ms var(--md-easing-emphasized);
 }
-.wow-bar__fill {
-  position: absolute; top: 0; bottom: 0;
-  border-radius: 3px;
-  transition: width 400ms var(--md-easing-emphasized);
+.cat-bar__count {
+  position: relative; z-index: 1;
+  margin-left: 14px;
+  color: #0a1726;
+  font-variant-numeric: tabular-nums;
 }
-.wow-bar__fill--up   { left: 50%; background: var(--md-sys-color-error); }
-.wow-bar__fill--down { right: 50%; background: var(--md-sys-color-tertiary); }
-.wow-bar__fill--flat { left: 50%; background: var(--md-sys-color-secondary); width: 0 !important; }
+.cat-bar__share {
+  position: relative; z-index: 1;
+  margin-left: auto; margin-right: 14px;
+  color: var(--md-sys-color-on-surface-faint);
+  font-variant-numeric: tabular-nums;
+}
+.cat-bar-caption {
+  margin-top: 16px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.cat-bar-caption strong { color: var(--md-sys-color-on-surface); }
+@media (max-width: 640px) {
+  .cat-bar { grid-template-columns: 1fr; gap: 4px; }
+  .cat-bar__label { text-align: left; }
+}
 
 /* ===== Donut chart for routing paths ===== */
 .donut-layout {
@@ -1310,7 +1337,7 @@ def build_html(manifest: dict,
     <main class="content">
       <section id="hero">
         <div class="hero-header" style="margin-bottom: 16px;">
-          <div class="section-eyebrow label-medium">02 · Headline numbers</div>
+          <div class="section-eyebrow label-medium">Headline numbers</div>
           <div class="hero-header__title headline-large">Week of {html.escape(date_range)}</div>
           <div class="hero-header__subtitle body-large">Customer-feedback signal · classified into 13-topic taxonomy</div>
         </div>
@@ -1318,7 +1345,7 @@ def build_html(manifest: dict,
       </section>
 
       <section id="tldr" class="report-card">
-        <div class="section-eyebrow label-medium">01 · TL;DR</div>
+        <div class="section-eyebrow label-medium">TL;DR</div>
         <h2 class="section-title headline-medium">What you need to know</h2>
         <div class="md-content">{tldr_html}</div>
       </section>
@@ -1326,7 +1353,7 @@ def build_html(manifest: dict,
       {dataset_html}
 
       <section id="findings" class="report-card">
-        <div class="section-eyebrow label-medium">04 · Key findings</div>
+        <div class="section-eyebrow label-medium">Key findings</div>
         <h2 class="section-title headline-medium">What the data is telling us</h2>
         <div class="md-content">{findings_html}</div>
       </section>
