@@ -1,20 +1,27 @@
-"""publish_ocv_report_v2.py
+"""publish_ocv_report.py
 
-Material Design 3 redesign of the weekly OCV report.
-PROPOSAL / PREVIEW: writes <out>.html (suggested suffix: _v2.html).
-Does not replace publish_ocv_report.py.
+Render a self-contained, dark-themed Material Design 3 HTML dashboard
+from an ocv-analyze-and-ticket manifest JSON (+ optional subtopics CSV /
+prior manifest / report markdown).
 
 Usage:
-    python scripts/publish_ocv_report_v2.py \
+    python scripts/publish_ocv_report.py \
         --manifest data/manifests/ocv_outlook-agent_2026-05-31_manifest.json \
         [--subtopics data/ocv_outlook-agent_2026-05-31_subtopics.csv] \
         [--prior-manifest data/manifests/ocv_outlook-agent_2026-05-24_manifest.json] \
         [--report-md data/ocv_outlook-agent_2026-05-31_report.md] \
-        [--out _ocv_weekly_repo/reports/2026-05-31_v2.html]
+        [--out _ocv_weekly_repo/reports/2026-05-31.html] \
+        [--no-preview-tag]
 
-Reads the same inputs as publish_ocv_report.py; emits an M3-styled HTML
-that matches the M3 dashboard (Google Sans + Material Symbols + the
-same surface tokens).
+Visual language matches the M3 index dashboard: sticky top app bar,
+left-rail TOC with scroll-spy, KPI hero cards with WoW chips, section
+cards with eyebrow labels, expandable P0/P1/P2 ticket cards (ADO button
++ OCV item links + Dash links + resolved-model annotations), FAB to
+ticket queue, donut chart for routing paths, horizontal bar chart for
+category breakdown.
+
+Historical: the pre-M3 ('v1') renderer is preserved at
+scripts/publish_ocv_report_v1_archive.py for reference only.
 """
 from __future__ import annotations
 
@@ -55,7 +62,11 @@ def load_subtopics(p: Optional[Path]) -> List[dict]:
 
 
 def load_markdown_sections(p: Optional[Path]) -> Dict[str, str]:
-    """Split the report.md by H2 (## Title) into a dict of {title: raw markdown}."""
+    """Split the report.md by H2 (## Title) into a dict of {title: raw markdown}.
+
+    Lenient on heading style: strips leading numbering like `1. ` or `1.2 `
+    from the title so both `## TL;DR` and `## 1. TL;DR` map to the same key.
+    """
     if not p or not p.exists():
         return {}
     text = p.read_text(encoding="utf-8")
@@ -65,9 +76,12 @@ def load_markdown_sections(p: Optional[Path]) -> Dict[str, str]:
         return {}
     # parts = [preface, h2_1, body_1, h2_2, body_2, ...]
     for i in range(1, len(parts), 2):
-        title = parts[i].strip()
+        raw_title = parts[i].strip()
+        normalized = re.sub(r"^\d+(?:\.\d+)*\.\s+", "", raw_title).strip()
         body = parts[i + 1].strip() if i + 1 < len(parts) else ""
-        sections[title] = body
+        sections[raw_title] = body
+        if normalized != raw_title:
+            sections[normalized] = body
     return sections
 
 
@@ -1425,7 +1439,13 @@ def main(argv=None) -> int:
         prior_mp: Optional[Path] = Path(args.prior_manifest)
     else:
         wow_basis = manifest.get("wow_basis")
-        prior_mp = Path(wow_basis) if wow_basis and Path(wow_basis).exists() else find_prior_manifest(mp, week)
+        # wow_basis may be a str path OR a dict with {"prior_manifest": "..."}
+        wb_path = None
+        if isinstance(wow_basis, str):
+            wb_path = wow_basis
+        elif isinstance(wow_basis, dict):
+            wb_path = wow_basis.get("prior_manifest")
+        prior_mp = Path(wb_path) if wb_path and Path(wb_path).exists() else find_prior_manifest(mp, week)
     prior_manifest = load_json(prior_mp) if prior_mp and prior_mp.exists() else None
 
     prior_sub: List[dict] = []
@@ -1434,9 +1454,16 @@ def main(argv=None) -> int:
         psub_path = Path(args.prior_subtopics) if args.prior_subtopics else (base_dir / f"ocv_outlook-agent_{pwk}_subtopics.csv")
         prior_sub = load_subtopics(psub_path if psub_path.exists() else None)
 
-    # auto-resolve report.md
-    md_path = Path(args.report_md) if args.report_md else (base_dir / f"ocv_outlook-agent_{week}_report.md")
-    md_sections = load_markdown_sections(md_path if md_path.exists() else None)
+    # auto-resolve report.md (fall back to _analysis.md if _report.md missing)
+    if args.report_md:
+        md_path: Optional[Path] = Path(args.report_md)
+    else:
+        md_path = base_dir / f"ocv_outlook-agent_{week}_report.md"
+        if not md_path.exists():
+            alt = base_dir / f"ocv_outlook-agent_{week}_analysis.md"
+            if alt.exists():
+                md_path = alt
+    md_sections = load_markdown_sections(md_path if md_path and md_path.exists() else None)
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
