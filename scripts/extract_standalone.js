@@ -79,6 +79,9 @@ if (rawArgs.includes('--include-blank')) rawArgs.splice(rawArgs.indexOf('--inclu
 const noCleanup = rawArgs.includes('--no-cleanup');
 if (noCleanup) rawArgs.splice(rawArgs.indexOf('--no-cleanup'), 1);
 
+const waitForSentinel = rawArgs.includes('--wait-for-sentinel');
+if (waitForSentinel) rawArgs.splice(rawArgs.indexOf('--wait-for-sentinel'), 1);
+
 // Remaining positional args: [output.csv]
 const outputFile = rawArgs[0] || `ocv_extract_${new Date().toISOString().slice(0, 10)}.csv`;
 
@@ -107,7 +110,7 @@ if (!ocvUrl) {
 }
 
 console.log(`Config: ${config.name} (${path.basename(configPath)})`);
-if (includeBlankFlag) console.log('Mode: Including feedback with blank verbatims (--include-blank)');
+if (includeStructured) console.log('Mode: Including feedback with blank verbatims (--include-structured)');
 
 // --- Build Runtime Objects from Config ---
 
@@ -862,6 +865,39 @@ async function main() {
     console.log('Waiting for OCV to load (complete SSO login if prompted)...');
     await page.waitForSelector('.ui-grid-row, [role="gridcell"], .discover-list, [date-range-picker]', { timeout: 120000 });
     console.log('OCV loaded.');
+
+    // Optional sentinel handshake: when --wait-for-sentinel is passed, the
+    // script pauses here until the user creates `.ocv_ready` at the repo
+    // root. Lets the user verify the page rendered (and optionally apply
+    // the date picker themselves) before the script touches anything.
+    if (waitForSentinel) {
+      const sentinelPath = path.join(__dirname, '..', '.ocv_ready');
+      try { fs.unlinkSync(sentinelPath); } catch {}
+      console.log('\n[sentinel] Edge is open. Verify the OCV page is fully loaded and showing data.');
+      console.log(`[sentinel] When ready, create the sentinel file:`);
+      console.log(`[sentinel]   New-Item ${sentinelPath} -Force | Out-Null`);
+      console.log(`[sentinel] Waiting up to 30 minutes...`);
+      const deadline = Date.now() + 30 * 60 * 1000;
+      while (Date.now() < deadline) {
+        if (fs.existsSync(sentinelPath)) {
+          try { fs.unlinkSync(sentinelPath); } catch {}
+          console.log('[sentinel] Detected. Proceeding.');
+          break;
+        }
+        await page.waitForTimeout(2000);
+      }
+      if (Date.now() >= deadline) {
+        throw new Error('Sentinel timeout (30 min). Aborting.');
+      }
+    }
+
+    // If the API query wasn't captured yet, wait up to 10s for it to fire
+    // (some OCV URL formats trigger the search after the page chrome loads)
+    if (!capturedQuery) {
+      for (let i = 0; i < 20 && !capturedQuery; i++) {
+        await page.waitForTimeout(500);
+      }
+    }
     page.off('request', requestHandler);
 
     // Step 4: Custom date ranges
