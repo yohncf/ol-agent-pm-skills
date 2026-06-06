@@ -1,10 +1,11 @@
 ---
-name: extract-ods
+name: ocv-extract-ods
 description: >
   Extract ODS (Office Diagnostic Sessions) ticket data via REST API. Use when the
   user asks to extract, pull, or get ODS/Sara ticket data. Runs the Python extraction
   script with token-based auth (no browser needed). Supports sampling from Kusto or
-  extracting from an existing URL list.
+  extracting from an existing URL list. Do NOT use for OCV verbatim feedback —
+  use `ocv-extract-feedback`. Do NOT use for Copilot Dash correlation — use `ocv-extract-dash`.
 ---
 
 # ODS Ticket Extraction
@@ -52,7 +53,7 @@ Before running, verify:
 ## Workflow 1: Extract from existing URL CSV
 
 ```bash
-cd ocv-extraction
+cd <project-root>
 python scripts/ods_api_extract.py --input data/ticket_urls.csv
 python scripts/ods_api_extract.py --input data/ticket_urls.csv --fields all --output data/results.csv
 ```

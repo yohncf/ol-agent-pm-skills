@@ -32,9 +32,25 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 
-DEFAULT_REPO = Path(r"C:\Users\yohnathanc\ocv-extraction\_ocv_weekly_repo")
+DEFAULT_REPO = (Path(__file__).resolve().parent.parent / "_ocv_weekly_repo")
 DEFAULT_GITHUB_URL = "https://github.com/gim-home/OCV-Weekly.git"
 DEFAULT_LIVE_BASE = "https://gim-home.github.io/OCV-Weekly"
+
+
+def _default_owner() -> str:
+    """Best-effort owner name for a freshly seeded reports.json.
+    Reads `git config user.name`; falls back to "Owner" if unavailable."""
+    try:
+        result = subprocess.run(
+            ["git", "config", "user.name"],
+            capture_output=True, text=True, check=False, timeout=2,
+        )
+        name = (result.stdout or "").strip()
+        if name:
+            return name
+    except Exception:
+        pass
+    return "Owner"
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +162,7 @@ def main() -> int:
                         help="Path to ocv-analyze manifest JSON (auto-fills week, range, "
                              "negatives, topics)")
     parser.add_argument("--html", type=Path, required=True,
-                        help="Path to the publish-ocv-report HTML output to upload")
+                        help="Path to the ocv-publish-report HTML output to upload")
     parser.add_argument("--week", help="Reporting week (YYYY-MM-DD). Defaults to manifest['week'].")
     parser.add_argument("--label", help="Card title (e.g. 'Week of May 18, 2026'). Derived from --week if omitted.")
     parser.add_argument("--range", dest="date_range",
@@ -209,9 +225,9 @@ def main() -> int:
 
     repo = args.repo.resolve()
     if not repo.exists() or not (repo / ".git").exists():
-        print(f"[publish-to-github] No clone at {repo}. Cloning {args.remote_url} ...")
+        print(f"[ocv-publish-github] No clone at {repo}. Cloning {args.remote_url} ...")
         if args.dry_run:
-            print("[publish-to-github] --dry-run set; skipping clone.")
+            print("[ocv-publish-github] --dry-run set; skipping clone.")
         else:
             repo.parent.mkdir(parents=True, exist_ok=True)
             _run(["git", "clone", args.remote_url, str(repo)])
@@ -242,7 +258,7 @@ def main() -> int:
         site_manifest = {
             "title": "OL Agent OCV Dashboard",
             "subtitle": "Weekly customer-feedback signal for the Outlook AI Agent",
-            "owner": "Yohnathan Cofre",
+            "owner": _default_owner(),
             "reports": [],
         }
     existing_reports = list(site_manifest.get("reports", []))
@@ -259,7 +275,7 @@ def main() -> int:
     # ----- Plan output (confirmation gate) -----
     print()
     print("=" * 62)
-    print("PUBLISH-TO-GITHUB PLAN")
+    print("OCV-PUBLISH-GITHUB PLAN")
     print("=" * 62)
     print(f"  Source HTML  : {args.html}  ({args.html.stat().st_size // 1024} KB)")
     print(f"  Target file  : {dest_html.relative_to(repo)}  (in {repo})")
@@ -283,7 +299,7 @@ def main() -> int:
 
     if args.dry_run:
         print()
-        print("[publish-to-github] --dry-run set; NOT touching the filesystem or git.")
+        print("[ocv-publish-github] --dry-run set; NOT touching the filesystem or git.")
         return 0
 
     if not args.yes:
@@ -293,49 +309,49 @@ def main() -> int:
         except EOFError:
             answer = ""
         if answer != "yes":
-            print("[publish-to-github] aborted by user.")
+            print("[ocv-publish-github] aborted by user.")
             return 1
-        print("[publish-to-github] Confirmed. Publishing...")
+        print("[ocv-publish-github] Confirmed. Publishing...")
     else:
-        print("[publish-to-github] --yes set; skipping interactive prompt "
+        print("[ocv-publish-github] --yes set; skipping interactive prompt "
               "(the agent must have shown the plan to the user already).")
 
     # ----- Apply changes -----
     dest_html.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(args.html, dest_html)
-    print(f"[publish-to-github] copied -> {dest_html.relative_to(repo)}")
+    print(f"[ocv-publish-github] copied -> {dest_html.relative_to(repo)}")
 
     site_manifest["reports"] = new_reports
     with open(reports_json, "w", encoding="utf-8", newline="\n") as f:
         json.dump(site_manifest, f, indent=2, ensure_ascii=False)
         f.write("\n")
-    print(f"[publish-to-github] wrote -> reports.json ({upsert_action})")
+    print(f"[ocv-publish-github] wrote -> reports.json ({upsert_action})")
 
     # Regenerate metrics_v2.json (consumed by index_v2.html M3 dashboard).
     # Best-effort: any failure here is logged but does not abort the publish.
     metrics_script = Path(__file__).resolve().parent / "gen_metrics_v2.py"
     metrics_dst = repo / "metrics_v2.json"
     if metrics_script.exists():
-        print("[publish-to-github] regenerating metrics_v2.json ...")
+        print("[ocv-publish-github] regenerating metrics_v2.json ...")
         gen_res = subprocess.run(
             [sys.executable, str(metrics_script), str(metrics_dst)],
             text=True, capture_output=True
         )
         if gen_res.returncode == 0:
-            print(f"[publish-to-github] wrote -> metrics_v2.json")
+            print(f"[ocv-publish-github] wrote -> metrics_v2.json")
         else:
-            print(f"[publish-to-github] WARNING: metrics_v2.json regen failed (rc={gen_res.returncode}); continuing")
+            print(f"[ocv-publish-github] WARNING: metrics_v2.json regen failed (rc={gen_res.returncode}); continuing")
             if gen_res.stdout: print(gen_res.stdout)
             if gen_res.stderr: print(gen_res.stderr, file=sys.stderr)
     else:
-        print(f"[publish-to-github] metrics generator not found at {metrics_script}; skipping metrics_v2.json refresh")
+        print(f"[ocv-publish-github] metrics generator not found at {metrics_script}; skipping metrics_v2.json refresh")
 
     # Pull + commit + push.
     print()
-    print("[publish-to-github] git pull --rebase (sync with remote) ...")
+    print("[ocv-publish-github] git pull --rebase (sync with remote) ...")
     _run(["git", "pull", "--rebase", "origin", args.branch], cwd=repo, check=False)
 
-    print("[publish-to-github] git add + commit ...")
+    print("[ocv-publish-github] git add + commit ...")
     _run(["git", "add", "-A"], cwd=repo)
     commit_res = subprocess.run(
         ["git", "commit", "-m", commit_msg],
@@ -343,15 +359,15 @@ def main() -> int:
     )
     if commit_res.returncode != 0:
         if "nothing to commit" in (commit_res.stdout + commit_res.stderr).lower():
-            print("[publish-to-github] nothing to commit (file already in sync). Skipping push.")
+            print("[ocv-publish-github] nothing to commit (file already in sync). Skipping push.")
             return 0
         print(commit_res.stdout)
         print(commit_res.stderr, file=sys.stderr)
-        sys.exit("[publish-to-github] git commit failed; see error above.")
+        sys.exit("[ocv-publish-github] git commit failed; see error above.")
     print(commit_res.stdout.strip())
 
     print()
-    print("[publish-to-github] git push ...")
+    print("[ocv-publish-github] git push ...")
     push_res = subprocess.run(
         ["git", "push", "origin", args.branch],
         cwd=str(repo), text=True, capture_output=True
@@ -359,7 +375,7 @@ def main() -> int:
     if push_res.returncode != 0:
         print(push_res.stdout)
         print(push_res.stderr, file=sys.stderr)
-        sys.exit("[publish-to-github] git push failed; see error above.")
+        sys.exit("[ocv-publish-github] git push failed; see error above.")
     print(push_res.stderr.strip() or push_res.stdout.strip())
 
     print()

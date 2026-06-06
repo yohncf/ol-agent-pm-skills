@@ -1,9 +1,11 @@
 ---
-name: extract-ocv
+name: ocv-extract-feedback
 description: >
   Extract OCV verbatim feedback to CSV. Use when the user asks to extract, pull,
   or get OCV feedback data. Runs the standalone extraction script with date
   filtering, PII scrubbing, and config-driven categorization.
+  Do NOT use for Copilot Dash tickets — use `ocv-extract-dash`. Do NOT use for
+  ODS/Sara tickets — use `ocv-extract-ods`.
 ---
 
 # OCV Extraction Command Generator
@@ -42,7 +44,7 @@ Extract two values from the user's prompt:
    - `--no-cleanup` — skips the interactive CSV cleanup prompt after extraction. Use this when running non-interactively.
 
 6. **If the extraction fails** (browser timeout, SSO redirect stuck, page didn't load, or 0 items returned), automatically retry:
-   - Delete the browser profile: `Remove-Item -Recurse -Force "<project-root>/.browser-profile"`
+   - Delete the browser profile at `<project-root>/.browser-profile/` (PowerShell: `Remove-Item -Recurse -Force <project-root>/.browser-profile`; bash: `rm -rf <project-root>/.browser-profile`)
    - Rerun the same extraction command
    - Tell the user: "Cleared stale browser cache and retrying. Complete SSO login on the first tab."
    - Only retry once. If it fails again, report the error.
@@ -104,4 +106,4 @@ OCV captures **passive qualitative feedback** — what users voluntarily share a
 
 **Coverage:** OCV captures <1% of MAU. It's the richest qualitative signal but represents self-selected, vocal users (skews toward dissatisfied). Complement with telemetry for quantitative reach.
 
-**Companion channel:** ODS captures the **support ticket path** — users who actively seek help. The two channels are linked via `DiagnosticSessionId`, enabling cross-referencing between feedback and support data. Use the `extract-ods` skill for ODS data.
+**Companion channel:** ODS captures the **support ticket path** — users who actively seek help. The two channels are linked via `DiagnosticSessionId`, enabling cross-referencing between feedback and support data. Use the `ocv-extract-ods` skill for ODS data.

@@ -1,9 +1,10 @@
 ---
-name: setup-ocv
+name: ocv-setup
 description: >
-  Guided setup for OCV feedback extraction. Use when a PM wants to configure the OCV
-  extraction tool for their area for the first time. Creates config files and walks
-  through test extraction and category discovery.
+  Guides a PM through configuring the OCV extraction tool for their product
+  area on first use — creates config files, walks through a test extraction,
+  and helps discover categories. Use only for first-time setup. Do NOT use
+  after the initial setup is done — use `ocv-extract-feedback` to run extractions.
 ---
 
 # OCV Feedback Extraction — Guided Setup
@@ -95,7 +96,7 @@ Print instructions:
 > Re-run the extraction. The `--summary` output will show your category breakdown.
 >
 > **5. Daily usage:**
-> Use the `/extract-ocv` skill: e.g. "extract ocv yesterday accounts"
+> Use the `/ocv-extract-feedback` skill: e.g. "extract ocv yesterday accounts"
 
 ## Guidelines
 

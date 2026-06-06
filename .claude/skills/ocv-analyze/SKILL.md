@@ -4,7 +4,9 @@ description: >
   Analyze extracted OCV feedback data. Use when the user asks to analyze, review,
   summarize, or get insights from OCV feedback. Reads the extracted CSV directly
   and provides theme discovery, category analysis, flagged items, and executive
-  summaries. Requires a prior extraction (run extract-ocv first if no CSV exists).
+  summaries.   Requires a prior extraction (run ocv-extract-feedback first if no CSV exists). Do NOT
+  use for CSV extraction — use `ocv-extract-feedback` or `ocv-extract-dash` first. Do NOT
+  use for the locked 13-topic ticketing taxonomy — use `ocv-analyze-and-ticket`.
 ---
 
 # OCV Feedback Analysis
@@ -29,45 +31,14 @@ Determine:
 
 ## Two-pass analysis architecture
 
-All analysis uses a **two-pass strategy** to maximize the number of items that fit in the context window:
-
-| Pass | What | How | LLM? |
-|------|------|-----|------|
-| **Pass 1 — Metadata** | Aggregate stats, distributions, segment breakdowns | Read full CSV programmatically (Node.js / inline script) | No |
-| **Pass 2 — Verbatim** | Theme discovery, flagging, categorization, executive summary | Send compact comment lines + Pass 1 summary as context | Yes |
-
-### Why two passes
-
-A full CSV row with all 31 fields averages ~205 tokens. Stripping to a compact tag line (`[Rating|Scenario|Client] comment text`) averages **~24 tokens** — an **88% reduction**. This means:
-
-| Items | Single-pass (full row) | Two-pass (compact) | Batches needed |
-|------:|----------------------:|--------------------|:--------------:|
-| 50 | ~10K tokens | ~1.2K + overhead | 1 |
-| 500 | ~103K tokens | ~12K | 1 |
-| 2,000 | ~411K (exceeds window) | ~48K | 1 |
-| 5,000 | ~1M (impossible) | ~120K | 1 |
-| 10,000 | ~2M (impossible) | ~240K | 2 |
-
-For datasets **under ~100 items**, the overhead of the metadata summary makes two-pass slightly less efficient. In that case, fall back to sending full rows directly (skip the compact format).
-
-### Compact line format
-
-For Pass 2, format each verbatim item as a single line:
-
-```
-<row_number>. [<Rating>|<Scenario>|<Client>|<Lang>|<Audience>] <Comment text>
-```
-
-Example:
-```
-42. [ThumbsDown|Elaborate|Desktop (Win32)|en|External] It sounds like it was written by someone from HR.
-153. [ThumbsDown|DAB|Web (Monarch)|es|Internal] Copilot summary missed the key action items from the thread.
-891. [ThumbsUp|Compose|Web (OWA)|de|External] Draft was perfect, saved me 10 minutes.
-```
-
-The `Lang` tag is the 2-letter language code (en, es, de, fr, ja, etc.). The `Audience` tag is `Internal` or `External`. These add ~12 tokens per line to the compact format but enable the LLM to spot language-specific and audience-specific patterns during theme discovery.
-
-Include the **Pass 1 metadata summary** at the top of every batch so the LLM has aggregate context while reading individual comments.
+All analysis uses a **two-pass strategy** (Pass 1: programmatic metadata
+aggregation, no LLM; Pass 2: LLM verbatim analysis using compact
+formatted lines) to maximize the number of items that fit in the
+context window. The compact line format reduces tokens ~88% vs full
+rows. **See `references/two-pass-architecture.md` for the full token
+math, the decision table for single-pass vs two-pass (the cutoff is
+~100 items), the compact line format spec, and rules for the Pass 1
+metadata header.**
 
 ## What to do
 
@@ -275,65 +246,17 @@ When the user asks to validate categories, run these checks on the categorized C
 
 **After all analysis steps are complete** (themes, flags, executive summary, PPTX), persist the results as a manifest JSON file. The manifest preserves all analytical value without retaining raw customer content.
 
-Use the manifest writer utility at `scripts/lib/manifest_writer.js`:
-
-```javascript
-const mw = require('./scripts/lib/manifest_writer');
-
-// 1. Create manifest with source metadata
-const manifest = mw.createManifest(csvPath, configPath, {
-  dateRange: { start: '2026-03-26', end: '2026-04-02' },
-  totalItems: 60800,
-  verbatimItems: 9812,
-});
-
-// 2. Add Pass 1 aggregate stats
-mw.addMetadata(manifest, {
-  sentimentDistribution: { Negative: 4200, Neutral: 3100, Positive: 2512 },
-  ratingDistribution: { ThumbsDown: 45000, ThumbsUp: 15800 },
-  scenarioDistribution: { Elaborate: 12000, DAB: 9500 },
-  clientDistribution: { 'Desktop (Win32)': 20000, 'Web (Monarch)': 18000 },
-  // ... all breakdowns from Step 3
-});
-
-// 3. Add themes with OcvId pointers and AI paraphrases
-mw.addThemes(manifest, [
-  {
-    name: 'Wrong Language Output',
-    count: 342,
-    description: 'Copilot responds in a different language than expected.',
-    sentiment: { Negative: 310, Neutral: 25, Positive: 7 },
-    examples: [
-      { ocvId: 'fdcl_v4_abc123', paraphrase: 'User wrote in English but got a Spanish response in Elaborate.' },
-      { ocvId: 'fdcl_v4_def456', paraphrase: 'Compose draft came back in French despite German UI settings.' },
-    ],
-  },
-]);
-
-// 4. Add flagged items
-mw.addFlaggedItems(manifest, [
-  {
-    reason: 'Competitor mentions',
-    ocvIds: ['fdcl_v4_x1', 'fdcl_v4_x2'],
-    paraphrase: 'Users mention switching to Gmail/Gemini due to repeated language issues.',
-  },
-]);
-
-// 5. Add executive summary
-mw.addExecutiveSummary(manifest, 'The executive summary text...');
-
-// 6. Write to data/manifests/
-const outputPath = mw.defaultManifestPath(csvPath);
-mw.writeManifest(manifest, outputPath);
-```
-
-**Manifest output path**: `data/manifests/<csv_basename>_manifest.json`
-
-**Paraphrase generation**: During Pass 2 theme discovery, for each theme's top 3-5 example items, generate a **1-sentence AI paraphrase** that captures the gist without reproducing the user's words verbatim. The paraphrase should be written in PM voice (e.g., "User reports Copilot responded in wrong language when using Elaborate on Win32").
-
-**Important**: The manifest must contain **NO raw customer content** — no verbatim Comment text, no PromptInEnglish, no ResponseInEnglish. Only OcvIds (system identifiers) and AI-generated paraphrases.
-
-Tell the user the manifest path when done.
+Use the manifest writer utility at `scripts/lib/manifest_writer.js`.
+The module exposes seven functions — `createManifest`, `addMetadata`,
+`addThemes`, `addFlaggedItems`, `addExecutiveSummary`,
+`defaultManifestPath`, `writeManifest` — that build and persist the
+manifest. **See `references/manifest-writer-api.md` for the full API
+reference, including the end-to-end example, the output-path
+convention, paraphrase generation rules, and the customer-content
+prohibition (no raw Comment / PromptInEnglish / ResponseInEnglish in
+the manifest — only OcvIds and AI paraphrases).** The agent calls these
+functions via inline Node.js after analysis is complete. Tell the user
+the manifest path when done.
 
 ### 12. Post-analysis cleanup
 

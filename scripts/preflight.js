@@ -73,7 +73,7 @@ check('Config files', () => {
   const configDir = path.join(PROJECT_ROOT, 'configs');
   if (!fs.existsSync(configDir)) throw new Error('configs/ directory not found.');
   const configs = fs.readdirSync(configDir).filter(f => f.endsWith('.json') && !f.startsWith('_'));
-  if (configs.length === 0) throw new Error('No config files found. Run the setup-ocv skill to create one.');
+  if (configs.length === 0) throw new Error('No config files found. Run the ocv-setup skill to create one.');
   return configs.map(f => f.replace('.json', '')).join(', ');
 });
 
