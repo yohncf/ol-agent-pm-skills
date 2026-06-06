@@ -11,6 +11,7 @@ data/manifests/*
 # Browser profiles (SSO cookies)
 .browser-profile/
 .browser-profile-ods/
+.browser-profile-dash/
 
 # Personal configs (contain area-specific OCV URLs)
 configs/*.json
@@ -27,3 +28,19 @@ docs/FHL_*.md
 # OS files
 Thumbs.db
 .DS_Store
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Local sandboxes / nested clones (must never be committed to this repo)
+_ocv_weekly_repo/
+_ocv_weekly_personal/
+
+# Local diagnostic logs and one-off scratch files
+gcm-diagnose.log
+.ocv_input.txt
+
+# Eval-side runtime artifacts (parallel to data/)
+eval-manifests/
+eval-reports/

@@ -1,215 +1,105 @@
-# OCV & ODS Feedback Extraction
+# OL Agent PM Skills
 
-## What is this?
+A collection of agent skills + supporting scripts for two end-to-end PM
+pipelines on the Outlook AI Agent:
 
-A tool that pulls customer feedback from **OCV** (verbatim feedback) and **ODS** (support tickets) into clean, Excel-ready CSVs. It grabs what customers actually wrote, along with sentiment, language, issue categories, and support context — all with personal info scrubbed out automatically.
+1. **OCV / Dash pipeline** — extract customer feedback (OCV verbatim,
+   Copilot Dash, ODS support tickets), analyze it into themes and
+   subtopics, render a self-contained HTML weekly report, and file ADO
+   bugs for the high-signal rows.
+2. **SEVAL pipeline** — diff two SEVAL HeroEval runs (Mainline vs
+   CodeGen, or any control vs experiment), surface real assertion
+   regressions, render a published HTML report, and file one ADO bug
+   per (failing_side, topic, category) cluster.
 
-**Two data channels, one toolkit:**
-
-| Channel | What it captures | Source | Coverage |
-|---------|-----------------|--------|----------|
-| **OCV** (Open Customer Voice) | Verbatim feedback: Send a Smile/Frown, NPS, Copilot thumbs, app store reviews | In-app feedback prompts | <1% MAU — small but richest qualitative signal |
-| **ODS** (Office Diagnostic Sessions) | Support tickets: problem statements, diagnostic data, Sara chat transcripts | Help → Contact Support flow | <<1% MAU — captures users who actively seek help |
-
-**Why it exists:** OCV's built-in export gives you metadata but not the actual verbatim feedback in a structured format. ODS has no export at all — you'd have to open each ticket manually. This tool fills both gaps.
-
-**Who it's for:** PMs on Outlook (or any team using OCV/ODS) who want to analyze customer feedback and support patterns at scale.
-
----
-
-## What you get
-
-### OCV extraction → CSV
-
-| Column | What it tells you |
-|--------|-------------------|
-| **Comment** | What the customer wrote (translated to English, personal info removed) |
-| **Sentiment** | Positive, Negative, or Neutral |
-| **Intent** | Problem, Request, or Compliment |
-| **Category** | Issue type (e.g., "Sign-in", "Send/Receive") — you define these |
-| **Provider** | ISP name if applicable (e.g., "Comcast", "GMX") |
-| **Language** | Original language (en, de, fr, etc.) |
-| **Date** | When the feedback was submitted |
-
-Plus: Feature tags, Noise flags, and OCV Area Path for filtering.
-
-### ODS extraction → CSV
-
-| Column | What it tells you |
-|--------|-------------------|
-| **ProblemStatement** | What the user described when seeking help |
-| **Symptom** | Entry point (e.g., ToggleFeedback, RecoveryAndContactSupport, CopilotChatFeedback) |
-| **DataClassification** | Feedback, Troubleshooting, Recovery, or DiagnosticOnly |
-| **Tags** | Clean semicolon-separated issue tags |
-| **TicketTier** | Agent tier (e.g., OlkEndUserChat confirms actual chat with support) |
-| **UserLocale** | Language/region (e.g., en-US, ja, de) |
-
-### AI analysis → Insights
-
-After extraction, the AI assistant produces analysis outputs including:
-
-- **Topic distribution** — ranked themes with counts and percentages (e.g., "Contacts/People: 22%, Sync/Missing Emails: 20%")
-- **Cross-tab analysis** — topic breakdown by segment (account type, language, provider) to spot where issues concentrate
-- **Sentiment by topic** — which themes drive the most negative feedback
-- **Executive summary** — TL;DR with top 3 recommended actions, formatted for status updates
-- **Category validation** — sample items per category, balance checks, ambiguity detection
+The skills are authored to be portable across **Claude Code**,
+**Gemini CLI**, and **GitHub Copilot CLI** discovery conventions; the
+canonical layout is `.claude/skills/<skill-name>/SKILL.md`.
 
 ---
 
-## Getting started
-
-**Time to set up: ~10 minutes.** Full walkthrough: **[docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)**
-
-Short version:
-
-1. **Install Node.js** from [nodejs.org](https://nodejs.org) (LTS version) if you don't have it
-2. **Clone this repo** and install dependencies:
-   ```
-   git clone https://github.com/lreisdesouza_microsoft/ocv-extraction.git
-   cd ocv-extraction
-   npm install
-   ```
-3. **Verify setup:**
-   ```
-   npm run check
-   ```
-   This checks that everything is installed. All items should show ✅.
-
-4. **Create your config** — tell the tool which OCV area to pull from. In GitHub Copilot CLI, just say:
-   > "set up OCV for my area"
-
-   The assistant walks you through it. No code editing needed.
-
----
-
-## Daily use
-
-### With an AI assistant (recommended)
-
-If you use **GitHub Copilot CLI**, just talk to it:
-
-**OCV feedback:**
-> "Extract OCV feedback for yesterday"
->
-> "Pull last 7 days of feedback"
-
-**ODS tickets:**
-> "Extract ODS support tickets for Cloud Cache"
->
-> "Sample 600 Cloud Cache tickets from the last 30 days"
-
-**Analysis:**
-> "Analyze the feedback from last week"
->
-> "What are the top themes in the last 30 days of feedback?"
->
-> "Break down topics by account type"
->
-> "Categorize the feedback using AI"
-
-The assistant handles file paths, date math, sampling, and output formatting for you.
-
-### Without an AI assistant
+## Repository layout
 
 ```
-npm run extract:accounts
+.claude/skills/         # 15 agent skills (the orchestration layer)
+configs/                # OCV area configs, ADO owner-routing rules
+scripts/                # Python + Node helpers the skills wrap
+docs/                   # Long-form pipeline notes, doctrine, privacy
+AGENTS.md               # Top-level skills index for AI assistants
+.github/copilot-instructions.md   # Copilot CLI-specific skills index
+.gemini/GEMINI.md       # Gemini CLI-specific overlay
 ```
 
-This pulls yesterday's feedback and prints a summary. Open the CSV in Excel for the full data.
+## The 15 skills
 
-### Date options
+### OCV / Dash pipeline (10)
 
-| Say this | Gets you |
-|----------|----------|
-| yesterday | Yesterday's feedback |
-| 7d | Last 7 days |
-| 30d | Last 30 days |
-| 3m | Last 3 months |
+| Skill | Role |
+|-------|------|
+| `ocv-setup` | First-time PM-guided configuration |
+| `ocv-extract-feedback` | Pull OCV verbatim CSV |
+| `ocv-extract-dash` | Pull Copilot Dash feedback |
+| `ocv-extract-ods` | Pull ODS support ticket details |
+| `ocv-analyze` | Two-pass analyze utility (themes, flags, summary) |
+| `ocv-analyze-and-ticket` | Main analyze + ticket-prep pass using the locked 13-topic taxonomy |
+| `ocv-publish-report` | Render the local self-contained HTML dashboard |
+| `ocv-publish-github` | Push the HTML to `gim-home/OCV-Weekly` (GitHub Pages) |
+| `ocv-ticket-sync` | Match-or-create ADO Bugs from the subtopics CSV |
+| `ocv-weekly` | End-to-end orchestrator over the pipeline |
 
----
+### SEVAL pipeline (5)
 
-## AI-powered analysis
+| Skill | Role |
+|-------|------|
+| `seval-synthesize-queries-from-ocv` | Convert an OCV manifest into SEVAL eval rows |
+| `seval-regression-analyze` | Diff two HeroEval runs; pre-fill `why_failed` per regression |
+| `seval-regression-publish` | Publish the HTML regression report to GitHub Pages |
+| `seval-regression-ticket-sync` | File one ADO Bug per cluster (always net-new) |
+| `seval-regression` | End-to-end orchestrator over the SEVAL pipeline |
 
-After extracting data, ask the assistant to analyze it:
+## Pipeline diagrams
 
-> "Analyze the accounts feedback"
->
-> "Categorize the feedback using AI"
->
-> "Validate my categories"
->
-> "Break down topics by account type"
->
-> "Show sentiment breakdown by topic"
+```
+OCV / Dash:
+  ocv-setup (once) -> ocv-extract-feedback + ocv-extract-dash
+   -> ocv-analyze-and-ticket
+   -> ocv-publish-report -> [optional ocv-ticket-sync] -> [optional ocv-publish-github]
 
-The AI assistant reads the CSV directly and provides:
+SEVAL:
+  [optional seval-synthesize-queries-from-ocv]
+   -> seval-regression-analyze
+   -> seval-regression-publish
+   -> [optional seval-regression-ticket-sync]
+```
 
-- **Top themes** — the 10 most common issues ranked by volume (e.g., "Contacts/People: 22%, Sync/Missing Emails: 20%, Send/Receive: 17%")
-- **AI categorization** — classify items using LLM based on your config-defined taxonomy. Handles ambiguity, multi-language input, and edge cases without manual tuning
-- **Cross-tab analysis** — break down topics by segment (account type, provider, language) to spot where issues concentrate. Flags over/under-represented themes per segment
-- **Sentiment by topic** — shows which themes drive the most negative feedback vs. balanced/positive sentiment
-- **Category validation** — sample items per category, balance checks, ambiguity detection, coverage summary
-- **Category suggestions** — new categories to add to your config, with ready-to-paste JSON
-- **High-value feedback** — row numbers of the most actionable items (specific errors, competitor mentions, impact descriptions)
-- **Executive summary** — a TL;DR with top 3 recommended actions, formatted for status updates
+## Authoring conventions
 
-No additional software or local models required. Analysis runs through the same AI assistant you use for extraction.
+All `SKILL.md` files follow a unified rubric synthesized from:
+- Anthropic's official Agent Skills documentation
+- The community `skills-best-practices` rubric
+- Gemini CLI's skill authoring docs
 
----
-
-## How authentication works
-
-**OCV extraction** (browser-based): The first time you run an extraction, Edge opens and asks you to sign in with your Microsoft account. Do that once — after that, it remembers your login and runs automatically. If authentication stops working (e.g., after a password change), the tool clears its cache and asks you to sign in again.
-
-**ODS extraction** (API-based): Uses your Azure CLI login (`az login`). No browser needed, no SSO timeouts. Token auto-refreshes.
-
----
+Key rules:
+- Body uses Markdown headings (the canonical format across Claude + Gemini)
+- Body stays under **500 lines**; bulk reference content is offloaded to `references/<topic>.md`
+- YAML `description` is verb-led, includes positive triggers AND a
+  `Do NOT use for X — use sister-skill` negative trigger
+- All cross-skill references use the relative single-segment form `<skill-name>/SKILL.md`
+- Owner names and repo paths are derived dynamically (git config /
+  `Path(__file__)`); no hardcoded usernames in scripts
 
 ## Privacy
 
-- All data stays on your machine and within the Microsoft network. No external services.
-- Personal info (emails, phone numbers) is automatically removed before the CSV is saved.
-- Email domains are only identified for ~55 known public ISPs (Gmail, Comcast, etc.). All other domains are redacted.
-- **CSVs are temporary.** After analysis, the tool produces a manifest (JSON) with aggregate stats, themes, and OcvId pointers — no raw customer content. The CSV should be deleted after analysis.
-- Run `npm run cleanup` to scan for and delete old CSVs.
-- See [docs/PRIVACY_REVIEW.md](docs/PRIVACY_REVIEW.md) for the full review.
+OCV verbatim feedback and Dash transcripts are **Customer Content** per
+the E+D Data Use Guidance. The pipeline deliberately:
+- Excludes `data/`, `data/manifests/*`, and all browser profiles
+  from git via `.gitignore`
+- Writes manifests that contain **only** OcvIds + AI paraphrases — no
+  raw `Comment`, `PromptInEnglish`, or `ResponseInEnglish`
+- Prompts the PM to delete raw CSVs after analysis completes
 
----
+See `docs/PRIVACY_REVIEW.md` for the full data-handling spec.
 
-## Customizing for your area
+## License
 
-Each product area gets its own config file that defines:
-
-- **Which OCV data to pull** (your filtered OCV URL)
-- **Issue categories** with descriptions (the AI uses these to classify feedback semantically)
-- **Feature tags** (which OCV tags matter for your area)
-- **Noise patterns** (spam, test entries, off-topic feedback)
-
-Start with the guided setup (ask the AI assistant "set up OCV for my area"), or copy `configs/_template.json` and edit it manually. The [Getting Started guide](docs/GETTING_STARTED.md) walks through both options.
-
-For **ODS extraction**, the sampling script is currently configured for Cloud Cache support tickets. To adapt for other areas, modify the Kusto query in `scripts/generate_sample_urls.py`.
-
----
-
-## Troubleshooting
-
-| Problem | What to do |
-|---------|-----------|
-| Not sure if setup is correct | Run `npm run check` — it tells you what's missing |
-| Edge doesn't open / login stuck (OCV) | Delete the `.browser-profile` folder and try again |
-| No feedback extracted (OCV) | Check that your OCV URL shows results when you open it in a browser |
-| Categories aren't matching | Ask the AI assistant to "validate my categories" or "recategorize using AI" |
-| ODS extraction fails | Run `az login` to refresh credentials. Check `az account show` for active session |
-| ODS tickets returning empty | Verify the ticket IDs exist in ODS portal. Some old sessions are purged |
-
----
-
-## Project info
-
-| | |
-|---|---|
-| **Origin** | Unified Inbox (Monarch) — IMAP account supportability |
-| **Created** | February 2026 |
-| **Technical docs** | [docs/TECHNICAL.md](docs/TECHNICAL.md) |
-| **Privacy review** | [docs/PRIVACY_REVIEW.md](docs/PRIVACY_REVIEW.md) |
-| **Setup guide** | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) |
+Internal Microsoft tooling. Not for external distribution.

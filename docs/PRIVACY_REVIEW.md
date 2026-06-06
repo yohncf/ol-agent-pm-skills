@@ -265,8 +265,8 @@ The E+D Data Use Guidance (effective March 3, 2026) states: "Claude Code cannot 
 | Edit source code (`scripts/extract_standalone.js`) | Yes | Source code is not customer data |
 | Edit config files (`configs/*.json`) | Yes | Configuration is not customer data |
 | Edit documentation (`README.md`, `docs/`) | Yes | Documentation is not customer data |
-| Create new config files via `/setup-ocv` | Yes | Writes config JSON, no customer data |
-| Generate extraction commands via `/extract-ocv` | Yes | Prints command text, does not execute |
+| Create new config files via `/ocv-setup` | Yes | Writes config JSON, no customer data |
+| Generate extraction commands via `/ocv-extract-feedback` | Yes | Prints command text, does not execute |
 
 ### What Claude Code cannot do
 
@@ -280,7 +280,7 @@ The E+D Data Use Guidance (effective March 3, 2026) states: "Claude Code cannot 
 ### Guardrails
 
 1. **`.claudeignore`** blocks `data/`, `*.csv`, and `.browser-profile/` from Claude Code file access.
-2. **Skill definitions** (`extract-ocv`, `setup-ocv`) have `Bash` removed from `allowed-tools`.
+2. **Skill definitions** (`ocv-extract-feedback`, `ocv-setup`) have `Bash` removed from `allowed-tools`.
 3. **`AGENTS.md`** contains explicit instructions that only GitHub Copilot CLI (backed by AOAI/Anthropic) is approved for customer data analysis. Claude Code is not approved.
 4. **`--summary` flag** on the extraction script prints only aggregate statistics (counts, distributions) to stdout, never customer verbatim text. This lets users get feedback without involving AI tools.
 

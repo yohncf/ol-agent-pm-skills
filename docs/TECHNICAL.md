@@ -27,7 +27,7 @@ No browser downloads needed — the script uses your installed Edge binary.
 **First-time config:** Either create a config manually (see [Config Format](#config-format)) or use the Copilot CLI setup wizard:
 
 ```
-/setup-ocv
+/ocv-setup
 ```
 
 ---
@@ -206,9 +206,9 @@ The project includes skills that work in **GitHub Copilot CLI**:
 
 | Skill | What it does |
 |-------|-------------|
-| `extract-ocv` | Runs the extraction command with date filtering and config resolution |
+| `ocv-extract-feedback` | Runs the extraction command with date filtering and config resolution |
 | `ocv-analyze` | AI-powered theme discovery, category suggestions, and executive summaries |
-| `setup-ocv` | Walks you through creating a config file for your area |
+| `ocv-setup` | Walks you through creating a config file for your area |
 
 Skills are stored in `.claude/skills/` and loaded automatically by both tools. In Copilot CLI, say "extract ocv yesterday accounts" or use `/skills list` to see available skills.
 
