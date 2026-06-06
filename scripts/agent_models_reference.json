@@ -1,0 +1,212 @@
+{
+  "schema_version": "1.0",
+  "last_updated": "2026-05-26",
+  "owner": "Yohnathan Carletti",
+  "purpose": "Reference for an agent to (a) attach friendly tags next to resolved model names found in Copilot Dash and (b) diagnose which Outlook Agent routing path a conversation took, to help isolate where quality issues are occurring.",
+
+  "context": {
+    "system_overview": "The Outlook Agent uses a Switcher routing layer inside Sydney's outer loop. On each turn, a small classifier model decides whether to handle the query on the Sydney/Tools branch (Mainline-equivalent, with optional WorkBerry agentic search) or to hand off to the CodeGen container (OPG codegen via outlook_container_handoff). Switcher and CodeGen are HARNESSES/PATHS, not models. The resolved model names in Copilot Dash tell you which path actually executed on a given turn.",
+    "paths": {
+      "sydney_tools": "Sydney/Tools branch — Mainline BizChat-equivalent path. Top-level model is GPT-5.3 Chat. May call SonicBerry as a sub-tool for WorkBerry agentic search/grounding.",
+      "codegen_claude": "CodeGen branch via Claude Code SDK harness. Top-level model is Claude Opus 4.6 or 4.7. Frontier-only; will NOT ship to GA.",
+      "codegen_ghcp": "CodeGen branch via GitHub Copilot (GHCP) harness. Top-level model is GPT-5.5 (or GPT-5.4 mini when the OPG model router picks the cheap branch). This is the GA-bound path."
+    }
+  },
+
+  "model_catalog": [
+    {
+      "resolved_model_name": "prod-gpt-41-mini-04-14",
+      "friendly_tag": "GPT-4.1 mini (classifier/router)",
+      "common_name": "GPT-4.1 mini (Apr 14, 2025 snapshot)",
+      "vendor": "OpenAI",
+      "role": "classifier_router_utility",
+      "path_indicator": "cross_cutting",
+      "notes": "Small/fast utility model. Runs BEFORE the Sydney-vs-CodeGen split as the classifier (decides simple vs complex). Its presence does NOT, by itself, tell you which branch was taken — always correlate with the other resolved models on the turn.",
+      "diagnostic_hint": "Expect this on almost every turn. Ignore for path diagnosis; use only the top-level conversational model."
+    },
+    {
+      "resolved_model_name": "prod-gpt-53-chat",
+      "friendly_tag": "GPT-5.3 Chat — Sydney/Tools path",
+      "common_name": "GPT-5.3 Chat",
+      "vendor": "OpenAI",
+      "role": "top_level_conversational",
+      "path_indicator": "sydney_tools",
+      "notes": "This is what Mainline BizChat ships at 100% WW. When present as the top-level model, the conversation went through the Sydney/Tools branch of Switcher, NOT CodeGen. May also appear as prod-gpt-53-chat-harmony-completions.",
+      "diagnostic_hint": "If this is the top-level model and there's a quality issue, the problem is on the Sydney/Tools side (prompt, tool definitions, grounding, or 5.3 Chat behavior)."
+    },
+    {
+      "resolved_model_name": "prod-sonicberry",
+      "friendly_tag": "SonicBerry — WorkBerry agentic search (Tools sub-tool)",
+      "common_name": "SonicBerry (OAI fine-tune)",
+      "vendor": "OpenAI (Microsoft fine-tune)",
+      "role": "subtool_grounding",
+      "path_indicator": "sydney_tools_with_workberry",
+      "notes": "Powers the WorkBerry tool (O365.AgenticSearch — click/scroll/find). Called as a sub-tool by Sydney for deep enterprise search/grounding. Never the top-level conversational model.",
+      "diagnostic_hint": "Co-presence with prod-gpt-53-chat = Sydney/Tools branch invoked WorkBerry for grounding. If quality issue is about search/retrieval/grounding correctness, this is the layer to investigate."
+    },
+    {
+      "resolved_model_name": "prod-anthropic-claude-opus-4-6",
+      "friendly_tag": "Claude Opus 4.6 — CodeGen path (Claude Code harness)",
+      "common_name": "Claude Opus 4.6",
+      "vendor": "Anthropic",
+      "role": "top_level_conversational",
+      "path_indicator": "codegen_claude",
+      "notes": "Top-level model inside the OPG codegen container via Claude Code SDK harness. Frontier-only — will NOT ship to GA. GA will migrate this branch to GPT-5.5 via GHCP harness.",
+      "diagnostic_hint": "Quality issue here = CodeGen branch issue. Check container handoff logic, codegen prompts, tool payloads, and Opus 4.6 behavior. Note: this path is being deprecated for GA."
+    },
+    {
+      "resolved_model_name": "prod-anthropic-claude-opus-4-7",
+      "friendly_tag": "Claude Opus 4.7 — CodeGen path (Claude Code harness)",
+      "common_name": "Claude Opus 4.7",
+      "vendor": "Anthropic",
+      "role": "top_level_conversational",
+      "path_indicator": "codegen_claude",
+      "notes": "Newer Opus variant used in CodeGen evaluations; same routing implication as 4.6.",
+      "diagnostic_hint": "Same as Opus 4.6 — CodeGen via Claude Code harness."
+    },
+    {
+      "resolved_model_name": "prod-gpt-55",
+      "aliases": ["prod-gpt-5-5", "prod-gpt-55-reasoning"],
+      "friendly_tag": "GPT-5.5 — CodeGen path (GHCP harness)",
+      "common_name": "GPT-5.5",
+      "vendor": "OpenAI",
+      "role": "top_level_conversational",
+      "path_indicator": "codegen_ghcp",
+      "notes": "Top-level model inside the OPG codegen container via the GitHub Copilot (GHCP) harness. This is the GA-bound CodeGen configuration replacing Opus 4.6.",
+      "diagnostic_hint": "Quality issue here = CodeGen branch on the GA-bound stack. High-signal: regressions here directly affect GA readiness."
+    },
+    {
+      "resolved_model_name": "prod-gpt-54-mini",
+      "aliases": ["prod-gpt-5-4-mini"],
+      "friendly_tag": "GPT-5.4 mini — CodeGen path (Office AI model router, cost-optimized branch)",
+      "common_name": "GPT-5.4 mini",
+      "vendor": "OpenAI",
+      "role": "top_level_conversational_or_routed",
+      "path_indicator": "codegen_ghcp_router",
+      "notes": "The Office AI model router (built on GPT-5.4 nano) routes ~27% of Outlook benchmark queries to GPT-5.4 mini for ~87% COGS reduction on those queries, with no statistically significant accuracy drop. Used inside the GHCP harness on the CodeGen branch.",
+      "diagnostic_hint": "Quality issue here = CodeGen branch + cost-optimized routing. Confirm whether router decision was appropriate for the query complexity."
+    },
+    {
+      "resolved_model_name": "prod-gpt-54-nano",
+      "aliases": ["prod-gpt-5-4-nano"],
+      "friendly_tag": "GPT-5.4 nano — Office AI model router classifier",
+      "common_name": "GPT-5.4 nano",
+      "vendor": "OpenAI",
+      "role": "router_classifier",
+      "path_indicator": "cross_cutting",
+      "notes": "Runs the Office AI model router itself — classifies each request by category and reasoning level to decide between mini and the larger CodeGen model.",
+      "diagnostic_hint": "Like prod-gpt-41-mini-04-14, this is a routing utility. Not a direct path indicator on its own."
+    },
+    {
+      "resolved_model_name": "prod-gpt-54-chat",
+      "aliases": ["prod-gpt-5-4-chat"],
+      "friendly_tag": "GPT-5.4 Chat — Sydney/Tools path (legacy eval variant)",
+      "common_name": "GPT-5.4 Chat",
+      "vendor": "OpenAI",
+      "role": "top_level_conversational",
+      "path_indicator": "sydney_tools",
+      "notes": "Was used as an Outlook Agent Sydney-side variant during April 2026 evals before standardizing on 5.3 Chat to match Mainline. May appear in older Dash entries.",
+      "diagnostic_hint": "Treat the same as prod-gpt-53-chat for path diagnosis — Sydney/Tools branch."
+    }
+  ],
+
+  "path_diagnosis_rules": [
+    {
+      "id": "rule_codegen_claude",
+      "if_resolved_models_contain_any_of": ["prod-anthropic-claude-opus-4-6", "prod-anthropic-claude-opus-4-7"],
+      "then_path": "CodeGen (Claude Code harness)",
+      "branch": "codegen_claude",
+      "confidence": "high",
+      "explanation": "Opus is only used as the top-level model when the CodeGen container handles the turn via the Claude Code SDK. Switcher routed this turn to the CodeGen branch."
+    },
+    {
+      "id": "rule_codegen_ghcp_55",
+      "if_resolved_models_contain_any_of": ["prod-gpt-55", "prod-gpt-5-5", "prod-gpt-55-reasoning"],
+      "then_path": "CodeGen (GHCP harness, GPT-5.5)",
+      "branch": "codegen_ghcp",
+      "confidence": "high",
+      "explanation": "GPT-5.5 in the resolved models means CodeGen via the GHCP harness — the GA-bound CodeGen configuration."
+    },
+    {
+      "id": "rule_codegen_ghcp_mini",
+      "if_resolved_models_contain_any_of": ["prod-gpt-54-mini", "prod-gpt-5-4-mini"],
+      "then_path": "CodeGen (GHCP harness, GPT-5.4 mini via Office AI model router)",
+      "branch": "codegen_ghcp_router",
+      "confidence": "high",
+      "explanation": "The Office AI model router selected the cheap mini branch for this turn. Still the CodeGen path."
+    },
+    {
+      "id": "rule_sydney_tools_with_workberry",
+      "if_resolved_models_contain_all_of": ["prod-sonicberry"],
+      "and_contain_any_of": ["prod-gpt-53-chat", "prod-gpt-54-chat"],
+      "then_path": "Sydney / Outlook Agent Tools branch + WorkBerry agentic search",
+      "branch": "sydney_tools_with_workberry",
+      "confidence": "high",
+      "explanation": "Top-level 5.3/5.4 Chat with SonicBerry invoked as a sub-tool indicates Sydney handled the turn and called WorkBerry for enterprise grounding."
+    },
+    {
+      "id": "rule_sydney_tools_only",
+      "if_resolved_models_contain_any_of": ["prod-gpt-53-chat", "prod-gpt-54-chat"],
+      "and_do_not_contain": ["prod-sonicberry", "prod-anthropic-claude-opus-4-6", "prod-anthropic-claude-opus-4-7", "prod-gpt-55", "prod-gpt-54-mini"],
+      "then_path": "Sydney / Outlook Agent Tools branch (no WorkBerry)",
+      "branch": "sydney_tools",
+      "confidence": "high",
+      "explanation": "Top-level 5.3/5.4 Chat without SonicBerry means Sydney handled the turn using built-in tools only; no agentic search was needed."
+    },
+    {
+      "id": "rule_classifier_only",
+      "if_resolved_models_contain_only": ["prod-gpt-41-mini-04-14"],
+      "then_path": "Inconclusive — only classifier visible",
+      "branch": "unknown",
+      "confidence": "low",
+      "explanation": "Only the classifier/router model is visible. The top-level conversational model is missing from the resolved list — investigate logging gap or pull more data for this turn."
+    }
+  ],
+
+  "agent_behavior": {
+    "tagging_instructions": [
+      "When rendering a resolved model name from Copilot Dash, append the matching `friendly_tag` from `model_catalog` immediately next to the raw name.",
+      "When multiple resolved models are present on the same turn, evaluate the rules in `path_diagnosis_rules` in order and apply the FIRST matching rule. Show the resulting path summary above the per-model tags.",
+      "Always distinguish role: `top_level_conversational` models tell you the PATH; `classifier_router_utility` and `subtool_grounding` models add context but should not be used alone to diagnose the path.",
+      "If no rule matches, label the path as 'Unknown — needs investigation' and surface all resolved models for manual review."
+    ],
+    "guidance_to_surface": {
+      "sydney_tools": "Issue is in the Sydney/Tools branch (Mainline-equivalent). Investigate: tool definitions, prompt config, 5.3 Chat behavior, classification logic that sent the query here.",
+      "sydney_tools_with_workberry": "Issue is in the Sydney/Tools branch with WorkBerry grounding. Investigate: WorkBerry retrieval quality, grounding data freshness, SonicBerry citations.",
+      "codegen_claude": "Issue is in the CodeGen branch via Claude Code harness (Opus). NOTE: this path is Frontier-only and will not ship to GA. Lower long-term investment value; still useful for current Frontier DSAT.",
+      "codegen_ghcp": "Issue is in the CodeGen branch via GHCP harness (GPT-5.5). HIGH PRIORITY — this is the GA-bound CodeGen path.",
+      "codegen_ghcp_router": "Issue is in the CodeGen branch when the Office AI model router selected the cheap mini branch. Check whether router decision was correct for this query complexity."
+    },
+    "supporting_signals_to_check": [
+      "BotEndpoint: Avalon → Sydney outer-loop is active (expected for any path).",
+      "ModelRunner: DEEP_LEO → heavier reasoning runner, common on CodeGen turns.",
+      "Invocation/CIQ tags (fetch_file, FileUpload, CIQ:IsTriggered) → complex query likely classified to CodeGen.",
+      "OcvFeedbackType: ThumbsDown + Feedback:HasVerbatim → pull verbatim for failure-topic classification.",
+      "Ring (WW/Frontier/SDF/MSIT) and Region → scope of impact and which deployment ring is affected."
+    ]
+  },
+
+  "worked_examples": [
+    {
+      "name": "Example A — Sydney/Tools + WorkBerry",
+      "resolved_models": ["prod-gpt-41-mini-04-14", "prod-gpt-53-chat", "prod-sonicberry"],
+      "diagnosed_path": "Sydney / Outlook Agent Tools branch + WorkBerry agentic search",
+      "matched_rule": "rule_sydney_tools_with_workberry",
+      "where_problem_likely_lives": "Sydney/Tools side. If retrieval or grounding looks off, focus on WorkBerry/SonicBerry; if the answer composition is wrong, focus on 5.3 Chat prompt config."
+    },
+    {
+      "name": "Example B — CodeGen via Claude Code harness",
+      "resolved_models": ["prod-anthropic-claude-opus-4-6"],
+      "diagnosed_path": "CodeGen (Claude Code harness)",
+      "matched_rule": "rule_codegen_claude",
+      "where_problem_likely_lives": "CodeGen branch on Opus 4.6 (Frontier-only). Investigate container handoff, codegen prompt, tool payloads. Note: GA migrates this branch off Opus, so prioritize accordingly."
+    },
+    {
+      "name": "Example C — CodeGen GA-bound stack",
+      "resolved_models": ["prod-gpt-41-mini-04-14", "prod-gpt-55"],
+      "diagnosed_path": "CodeGen (GHCP harness, GPT-5.5)",
+      "matched_rule": "rule_codegen_ghcp_55",
+      "where_problem_likely_lives": "GA-bound CodeGen path — HIGH PRIORITY for GA readiness."
+    }
+  ]
+}

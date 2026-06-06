@@ -44,3 +44,10 @@ gcm-diagnose.log
 # Eval-side runtime artifacts (parallel to data/)
 eval-manifests/
 eval-reports/
+
+# Generated HTML report outputs (regenerated on every run)
+output/
+
+# Personal one-off mirror scripts (machine-specific paths)
+mirror_to_personal.ps1
+mirror_to_personal_v2.ps1
