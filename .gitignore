@@ -1,53 +1,65 @@
+# ===== OLAgentWork monorepo .gitignore =====
+
 # Dependencies
 node_modules/
 
-# Extracted data and analysis outputs (customer content — do not commit)
-data/*
-!data/.gitkeep
-!data/manifests/
-data/manifests/*
-!data/manifests/.gitkeep
+# --- OCV project: extracted data and analysis outputs (customer content) ---
+ocv-extraction/data/*
+!ocv-extraction/data/.gitkeep
+!ocv-extraction/data/manifests/
+ocv-extraction/data/manifests/*
+!ocv-extraction/data/manifests/.gitkeep
+
+# OCV personal area configs (contain area-specific OCV URLs)
+ocv-extraction/configs/*.json
+!ocv-extraction/configs/_template.json
+!ocv-extraction/configs/accounts.json
+
+# OCV FHL demo / presentation / living-doc (personal content)
+ocv-extraction/demo/
+ocv-extraction/docs/FHL_*.md
+
+# --- SEVAL project: eval runtime artifacts ---
+seval-analysis/data/*
+!seval-analysis/data/.gitkeep
+!seval-analysis/data/eval-manifests/
+seval-analysis/data/eval-manifests/*
+!seval-analysis/data/eval-manifests/.gitkeep
+!seval-analysis/data/eval-reports/
+seval-analysis/data/eval-reports/*
+!seval-analysis/data/eval-reports/.gitkeep
+
+# --- shared: owners-routing config (user-local, maps real people) ---
+shared/configs/*.json
+!shared/configs/.gitkeep
 
 # Browser profiles (SSO cookies)
 .browser-profile/
 .browser-profile-ods/
 .browser-profile-dash/
 
-# Personal configs (contain area-specific OCV URLs)
-configs/*.json
-!configs/_template.json
-!configs/accounts.json
-
-# FHL demo and presentation materials (personal content)
-demo/
-docs/FHL_*.md
-
 # Local AI assistant settings
 .claude/settings.local.json
 
-# OS files
-Thumbs.db
-.DS_Store
-
-# Python bytecode
-__pycache__/
-*.pyc
-
-# Local sandboxes / nested clones (must never be committed to this repo)
+# Local sandboxes / nested clones (must never be committed)
 _ocv_weekly_repo/
 _ocv_weekly_personal/
+
+# Generated HTML report outputs (regenerated on every run)
+output/
 
 # Local diagnostic logs and one-off scratch files
 gcm-diagnose.log
 .ocv_input.txt
 
-# Eval-side runtime artifacts (parallel to data/)
-eval-manifests/
-eval-reports/
-
-# Generated HTML report outputs (regenerated on every run)
-output/
-
 # Personal one-off mirror scripts (machine-specific paths)
 mirror_to_personal.ps1
 mirror_to_personal_v2.ps1
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# OS files
+Thumbs.db
+.DS_Store
