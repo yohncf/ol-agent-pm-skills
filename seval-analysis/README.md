@@ -12,6 +12,7 @@ the **OLAgentWork** repo root; shares common code in
 - `seval-regression-publish` — publish the report to the OCV-Weekly GitHub Pages site
 - `seval-regression-ticket-sync` — file one ADO Bug per regression cluster
 - `seval-regression` — orchestrator (analyze → publish → optional ticket-sync)
+- `seval-run-triage` — single-run failure triage → fingerprint manifest + markdown + HTML report
 
 ## Quick start
 

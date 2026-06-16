@@ -44,6 +44,7 @@ AGENTS.md               # Top-level skills index for AI assistants
 | `ocv-analyze-and-ticket` | Main analyze + ticket-prep pass using the locked 13-topic taxonomy |
 | `ocv-publish-report` | Render the local self-contained HTML dashboard |
 | `ocv-publish-github` | Push the HTML to `gim-home/OCV-Weekly` (GitHub Pages) |
+| `ocv-draft-email` | Build a leadership announcement email and save a local Classic Outlook draft |
 | `ocv-ticket-sync` | Match-or-create ADO Bugs from the subtopics CSV |
 | `ocv-weekly` | End-to-end orchestrator over the pipeline |
 

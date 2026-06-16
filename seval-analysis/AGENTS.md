@@ -17,6 +17,7 @@ reuses its ADO sync engine, owners-routing config, and 13-topic taxonomy.
 | `seval-regression-publish` | Publish a rendered SEVAL regression report into the OCV-Weekly GitHub Pages site (`eval-reports/` + auto-managed `eval.html` listing), inject a dropdown into `index.html`, and push (dual-mirror via `origin`). Two-gate confirmation |
 | `seval-regression-ticket-sync` | File one ADO Bug per `(failing_side, topic, category)` cluster from a regression manifest. Always net-new (never links). Tags `OutlookAgent` + `SevalRegression`, auto-assigned via the shared owners config. Two-gate confirmation |
 | `seval-regression` | **Orchestrator.** Runs `seval-regression-analyze` → `seval-regression-publish` → optional `seval-regression-ticket-sync`, pausing for user confirmation between steps |
+| `seval-run-triage` | Single-run failure triage. Joins the four SEVAL run artifacts (Assertions CSV, Queries TSV, Assertion-doctrine YAML, Settings JSON), enriches each row with `level` (critical/expected/aspirational) and `segment`, and classifies every failed assertion into one of four root-cause families (missing data / assertion / agent performance / model). Emits a diffable fingerprint manifest + PM-voice markdown summary + dark-themed HTML report. Pair with `seval-regression-analyze` for run-vs-run comparison |
 
 ## Scripts
 
@@ -27,6 +28,8 @@ reuses its ADO sync engine, owners-routing config, and 13-topic taxonomy.
 | `scripts/eval_regression_render.py` | `seval-regression-analyze` (manifest → HTML) |
 | `scripts/publish_eval_regression_report.py` | `seval-regression-publish` |
 | `scripts/seval_regression_ado_sync.py` | `seval-regression-ticket-sync` (imports `../shared/ado_sync.py`) |
+| `scripts/seval_run_triage_extract.py` | `seval-run-triage` (join run artifacts → fingerprint manifest) |
+| `scripts/seval_run_triage_render.py` | `seval-run-triage` (manifest → markdown + HTML) |
 
 ## Shared dependencies
 

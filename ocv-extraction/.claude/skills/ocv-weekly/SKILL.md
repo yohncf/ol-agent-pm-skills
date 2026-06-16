@@ -2,15 +2,19 @@
 name: ocv-weekly
 description: >
   End-to-end weekly OCV pipeline for a date range. Orchestrates the four
-  sub-skills (ocv-extract-feedback → ocv-extract-dash → ocv-analyze-and-ticket →
-  ocv-publish-report) so the user can go from "run the weekly OCV pipeline
-  from 2026-05-12 to 2026-05-18" to a publishable HTML dashboard in one
-  request, with a single review pause after the subtopics CSV is generated
-  so the user can edit it before tickets are filed and the report is
-  rendered. Use when the user asks to "run the weekly OCV pipeline",
-  "do the full weekly OCV run", "extract-analyze-publish for last week",
-  "run OCV end-to-end from <date> to <date>", or any phrasing that wants
-  all four steps chained together for a single date range.
+  core sub-skills (ocv-extract-feedback → ocv-extract-dash →
+  ocv-analyze-and-ticket → ocv-publish-report) plus up to three optional
+  extension steps (ocv-ticket-sync for ADO writes, ocv-publish-github
+  for GitHub Pages, and ocv-draft-email for the Outlook leadership
+  email), so the user can go from "run the weekly OCV pipeline from
+  2026-05-12 to 2026-05-18" to a published HTML dashboard AND a staged
+  announcement draft in one request, with a single review pause after
+  the subtopics CSV is generated so the user can edit it before tickets
+  are filed and the report is rendered. Use when the user asks to "run
+  the weekly OCV pipeline", "do the full weekly OCV run",
+  "extract-analyze-publish for last week", "run OCV end-to-end from
+  <date> to <date>", or any phrasing that wants the canonical steps
+  chained together for a single date range.
 ---
 
 # OCV Weekly Pipeline (Orchestrator)
@@ -18,11 +22,13 @@ description: >
 This is a **meta-skill**. It does not extract, classify, or render anything
 itself — it invokes four core skills in the canonical order (`ocv-extract-feedback`
 → `ocv-extract-dash` → `ocv-analyze-and-ticket` → `ocv-publish-report`),
-with two optional extension steps (`ocv-ticket-sync` for ADO sync, `ocv-publish-github`
-for Pages deployment), with the right arguments threaded between them, and
-it pauses for the user's subtopics review at the natural handoff point.
+with three optional extension steps (`ocv-ticket-sync` for ADO sync,
+`ocv-publish-github` for Pages deployment, `ocv-draft-email` for the
+leadership announcement email), with the right arguments threaded
+between them, and it pauses for the user's subtopics review at the
+natural handoff point.
 
-The four sub-skills stay fully isolated and independently invocable:
+The sub-skills stay fully isolated and independently invocable:
 
 | # | Sub-skill              | Input                          | Output                                         |
 |---|------------------------|--------------------------------|------------------------------------------------|
@@ -31,6 +37,7 @@ The four sub-skills stay fully isolated and independently invocable:
 | 3 | `ocv-analyze-and-ticket` | both CSVs from steps 1 & 2  | `_manifest.json` + `_subtopics.csv` + `_report.md` |
 | 4 | `ocv-publish-report`   | the three artifacts from step 3 | `output/ocv_<area>_<week>.html`                |
 | 5 | `ocv-publish-github` (optional) | the HTML from step 4 + manifest from step 3 | new commit on `gim-home/OCV-Weekly` `main` |
+| 6 | `ocv-draft-email` (optional) | manifest + subtopics + report MD from step 3 (+ optional ADO query URL from step 3.5, live URL from step 5) | local Classic Outlook draft saved to user's Drafts folder |
 
 If any step changes its internal behavior, only that step needs to be
 edited — this orchestrator just declares the sequence and the data
@@ -255,6 +262,58 @@ If the user picks "No, don't publish" at the prompt, the local HTML in
 `output/` is still ready to paste into Loop / email — the pipeline is
 complete either way.
 
+After step 5 (or after step 4 if the user skipped 5), proceed to step 6.
+
+### Step 6 (optional) — Draft the weekly leadership email
+
+Once the report is published (locally and/or to GitHub Pages), offer to
+build the HTML announcement email that gets sent to the leadership /
+v-team distribution list. This is the **last action** of the
+orchestrator — it never sends, it only stages a draft in the user's
+local Outlook Drafts folder, with To/Cc/Bcc deliberately blank so the
+user picks the audience interactively.
+
+Use `ask_user`:
+
+> "Want me to draft the weekly announcement email for `<week>` and drop
+> it in your Outlook Drafts? (Recipients will be blank; nothing will be
+> sent.)"
+>
+> Options:
+> - Yes, draft the email
+> - No, I'll do it manually
+> - Not now / skip
+
+On **"Yes, draft the email"**, invoke the `ocv-draft-email` skill. It
+will:
+
+1. Build an Outlook-safe HTML body containing the same KPIs, TL;DR
+   bullets, and WoW topic-shift table from the published report, plus
+   a closing block (ADO query link, opt-out note, walk-through offer,
+   sign-off).
+2. Ask the user once (gate) to confirm draft creation after showing a
+   local preview path.
+3. On confirm, call Outlook COM to save the draft (no Microsoft Graph
+   consent required — uses local Classic Outlook).
+4. Verify the draft landed in `\\<mailbox>\Drafts` and print the
+   EntryID + folder + size.
+
+Pass through whatever optional context the earlier steps produced:
+
+| Optional context from earlier steps | Pass to ocv-draft-email as |
+|---|---|
+| ADO query URL from step 3.5 (the `Untitled query` link in `state.json`) | `--ado-query-url` |
+| Number of items synced in step 3.5 | `--ado-writes` |
+| Headline highlight derived from TL;DR / WoW deltas | `--highlights` |
+| Subject override (e.g., area is not `outlook-agent`) | `--subject` |
+
+If the user picks "No" or "Not now", the pipeline ends after step 5.
+The artifacts are still complete; the user can run `ocv-draft-email`
+later by itself.
+
+See `.claude/skills/ocv-draft-email/SKILL.md` for full doctrine,
+recipient policy, OWA-sync recovery, and HTML safety rules.
+
 ---
 
 ## Resuming partway
@@ -266,7 +325,8 @@ date. If anything fails mid-run:
 | User says / situation                       | Resume from |
 |---------------------------------------------|-------------|
 | "Just publish to GitHub"                    | Step 5 only |
-| "Just re-publish the report"                | Step 4 only (then offer step 5) |
+| "Just draft the weekly email"               | Step 6 only |
+| "Just re-publish the report"                | Step 4 only (then offer steps 5 + 6) |
 | "Re-classify with my edited subtopics CSV"  | Step 3 + 4 (with edited subtopics CSV honored) |
 | "Re-extract Dash, the column was missing"   | Step 2 onward |
 | "Start over"                                | Step 1 onward |
@@ -309,6 +369,14 @@ new commit on origin/main of gim-home/OCV-Weekly                 (step 5)
 https://gim-home.github.io/OCV-Weekly/reports/2026-05-18.html    (live)
 ```
 
+Plus, if the user opted into step 6:
+
+```
+output/email_drafts/ocv_email_2026-05-18.html                    (step 6 preview)
+new item in Classic Outlook → Drafts (Subject: "Weekly OCV
+  Feedback (MM/DD - MM/DD) + CopilotDash", recipients blank)     (step 6)
+```
+
 The orchestrator's final message to the user should list all paths so
 they can find anything later without remembering naming conventions.
 
@@ -316,7 +384,7 @@ they can find anything later without remembering naming conventions.
 
 ## Relationship to other skills
 
-This skill **invokes** the five sub-skills. It does not duplicate any
+This skill **invokes** the six sub-skills. It does not duplicate any
 of their logic. Doctrine for each step lives in its own SKILL.md:
 
 - `.claude/skills/ocv-extract-feedback/SKILL.md`
@@ -325,6 +393,7 @@ of their logic. Doctrine for each step lives in its own SKILL.md:
 - `.claude/skills/ocv-publish-report/SKILL.md`
 - `.claude/skills/ocv-ticket-sync/SKILL.md` (optional step 3.5)
 - `.claude/skills/ocv-publish-github/SKILL.md` (optional step 5)
+- `.claude/skills/ocv-draft-email/SKILL.md` (optional step 6)
 
 If a sub-skill's interface changes (new flags, different output paths),
 update the corresponding section above and nothing else.

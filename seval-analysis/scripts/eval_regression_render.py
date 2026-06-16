@@ -82,6 +82,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{TITLE}}</title>
 <meta name="description" content="{{META_DESC}}">
+<meta name="seval:manifest-slug" content="{{MANIFEST_SLUG}}">
+<meta name="seval:total-regressions" content="{{TOTAL_REG}}">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Display:wght@400;500;700&family=Google+Sans+Text:wght@400;500;600&family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -422,6 +424,63 @@ details.flag-browse > summary:hover { background: var(--surface-3); }
   font-size: 12px;
 }
 .btn-action:hover { background: var(--surface-3); }
+.btn-action.btn-primary {
+  background: var(--primary-container);
+  color: var(--primary);
+  border-color: var(--primary);
+  font-weight: 600;
+}
+.btn-action.btn-primary:hover { background: rgba(168, 199, 250, 0.22); }
+
+.controls-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.controls-group.controls-ado {
+  margin-left: auto;
+  padding-left: 12px;
+  border-left: 1px solid var(--outline);
+}
+.selection-counter {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.selection-counter .sel-on  { color: var(--tertiary); font-weight: 600; }
+.selection-counter .sel-off { color: var(--text-faint); }
+
+.assertion-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-faint);
+  background: var(--surface-2);
+  border: 1px solid var(--outline);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.assertion-select input { margin: 0; cursor: pointer; accent-color: var(--tertiary); }
+.assertion-select:hover { background: var(--surface-3); color: var(--text-muted); }
+.assertion-select.is-on { color: var(--tertiary); border-color: var(--tertiary); background: var(--tertiary-container); }
+
+.assertion.is-excluded {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.assertion.is-excluded .assertion-text::before {
+  content: "EXCLUDED · ";
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
 
 .no-results {
   padding: 40px;
@@ -475,7 +534,7 @@ details.query[open] > summary.query-header::before { transform: rotate(90deg); }
   border: 1px solid var(--outline);
 }
 .assertion-header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; align-items: flex-start; }
-.assertion-text { color: var(--text); font-weight: 500; }
+.assertion-text { color: var(--text); font-weight: 500; flex: 1 1 auto; min-width: 0; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
 .col {
   background: var(--surface-1);
@@ -584,6 +643,12 @@ details.rationale[open] > summary::before { content: "▾ "; }
     <button class="filter-pill pill-ee" data-filter="experiment_vs_experiment">{{EXPERIMENT_NAME}} vs {{EXPERIMENT_NAME}} ({{EE_COUNT}})</button>
     <button class="btn-action" id="expand-all">Expand all</button>
     <button class="btn-action" id="collapse-all">Collapse all</button>
+    <div class="controls-group controls-ado" title="Mark which assertions to include when filing ADO bugs. Selection is stored in your browser per report slug; download the JSON when you're done and feed it to seval_regression_ado_sync.py --selection.">
+      <span class="selection-counter" id="ado-counter"><span class="sel-on" id="ado-on">{{TOTAL_REG}}</span> / {{TOTAL_REG}} for ADO</span>
+      <button class="btn-action" id="ado-select-visible" title="Mark all currently-visible rows as Include">Select visible</button>
+      <button class="btn-action" id="ado-clear-visible" title="Mark all currently-visible rows as Exclude">Clear visible</button>
+      <button class="btn-action btn-primary" id="ado-download" title="Download a selection JSON file. Pass it to seval_regression_ado_sync.py --selection.">Download ADO selection</button>
+    </div>
   </div>
   <div id="queries">
 {{QUERIES_HTML}}
@@ -670,6 +735,110 @@ details.rationale[open] > summary::before { content: "▾ "; }
       });
     });
   });
+
+  // ADO selection — per-row checkboxes, persisted to localStorage, exported
+  // as JSON for `seval_regression_ado_sync.py --selection <file>`. Default
+  // is everything-included; users uncheck rows they don't want filed.
+  (function adoSelection() {
+    const slugMeta = document.querySelector('meta[name="seval:manifest-slug"]');
+    const slug = slugMeta ? slugMeta.getAttribute('content') : 'unknown';
+    const storageKey = 'sevalAdoSelection:' + slug;
+    const boxes = Array.from(document.querySelectorAll('input.row-include'));
+    const counterOn = document.getElementById('ado-on');
+    const downloadBtn = document.getElementById('ado-download');
+    const selectVisibleBtn = document.getElementById('ado-select-visible');
+    const clearVisibleBtn = document.getElementById('ado-clear-visible');
+    if (!boxes.length || !counterOn || !downloadBtn) return;
+
+    // Load saved state. Schema: { "<id>": true } means excluded; missing keys
+    // default to included. We only persist excludes so re-rendering with new
+    // rows defaults them to included.
+    let excludes = {};
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) excludes = JSON.parse(raw) || {};
+    } catch (e) { excludes = {}; }
+    // Back-compat: an earlier build stored `false` to mean excluded. Normalize
+    // any falsy entries to `true` so the toggle logic below works.
+    Object.keys(excludes).forEach(k => { excludes[k] = true; });
+
+    function applyToBox(box) {
+      const id = box.getAttribute('data-id');
+      const isOn = !excludes[id];
+      box.checked = isOn;
+      const label = box.closest('label.assertion-select');
+      if (label) label.classList.toggle('is-on', isOn);
+      const card = box.closest('.assertion');
+      if (card) card.classList.toggle('is-excluded', !isOn);
+    }
+    function updateCounter() {
+      const on = boxes.reduce((n, b) => n + (b.checked ? 1 : 0), 0);
+      counterOn.textContent = String(on);
+    }
+    function persist() {
+      try { localStorage.setItem(storageKey, JSON.stringify(excludes)); } catch (e) {}
+    }
+
+    boxes.forEach(box => {
+      applyToBox(box);
+      box.addEventListener('change', () => {
+        const id = box.getAttribute('data-id');
+        if (box.checked) delete excludes[id]; else excludes[id] = true;
+        applyToBox(box);
+        updateCounter();
+        persist();
+      });
+    });
+    updateCounter();
+
+    function visibleBoxes() {
+      return boxes.filter(b => {
+        const card = b.closest('.assertion');
+        if (!card || card.style.display === 'none') return false;
+        const qNode = card.closest('details.query');
+        if (qNode && qNode.style.display === 'none') return false;
+        return true;
+      });
+    }
+    selectVisibleBtn && selectVisibleBtn.addEventListener('click', () => {
+      visibleBoxes().forEach(b => {
+        const id = b.getAttribute('data-id');
+        delete excludes[id];
+        applyToBox(b);
+      });
+      updateCounter(); persist();
+    });
+    clearVisibleBtn && clearVisibleBtn.addEventListener('click', () => {
+      visibleBoxes().forEach(b => {
+        const id = b.getAttribute('data-id');
+        excludes[id] = true;
+        applyToBox(b);
+      });
+      updateCounter(); persist();
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      const payload = {
+        manifest_slug: slug,
+        exported_at: new Date().toISOString(),
+        format: 'seval-ado-selection/v1',
+        notes: 'Pass to seval_regression_ado_sync.py via --selection <file>. Rows with include=false are dropped before clustering.',
+        selections: boxes.map(b => ({
+          id: b.getAttribute('data-id'),
+          include: b.checked
+        }))
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {type: 'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = slug + '_ado_selection.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    });
+  })();
 })();
 </script>
 </body>
@@ -1010,6 +1179,9 @@ def render_assertion(r: Dict[str, Any], ctrl_name: str, exp_name: str) -> str:
         f'  <div class="assertion-header">'
         f'    <div class="assertion-text">{html.escape(r["assertion"])}{meta_html}</div>'
         f'    <span class="badge {cmp_badge_cls}">{html.escape(cmp_label)}</span>'
+        f'    <label class="assertion-select is-on" title="Include this assertion when filing ADO bugs (via seval_regression_ado_sync.py --selection).">'
+        f'      <input type="checkbox" class="row-include" data-id="{html.escape(r["id"])}" checked> Include in ADO'
+        f'    </label>'
         f'  </div>'
         f'  <div class="grid">'
         f'    <div class="col">'
@@ -1076,6 +1248,10 @@ def render(manifest: Dict[str, Any], manifest_path: Path) -> str:
 
     queries_html = render_query_blocks(manifest.get("regressions", []), ctrl["name"], exp["name"])
 
+    manifest_slug = manifest_path.stem
+    if manifest_slug.endswith("_manifest"):
+        manifest_slug = manifest_slug[: -len("_manifest")]
+
     substitutions = {
         "{{TITLE}}": html.escape(title),
         "{{META_DESC}}": html.escape(subtitle),
@@ -1093,6 +1269,7 @@ def render(manifest: Dict[str, Any], manifest_path: Path) -> str:
         "{{QUERIES_HTML}}": queries_html,
         "{{GENERATED_AT}}": html.escape(_dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")),
         "{{MANIFEST_PATH}}": html.escape(str(manifest_path)),
+        "{{MANIFEST_SLUG}}": html.escape(manifest_slug),
         "{{SCHEMA_VERSION}}": html.escape(manifest.get("schema_version", "?")),
         "{{MANIFEST_JSON}}": safe_json_for_html(manifest),
     }

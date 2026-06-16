@@ -98,12 +98,41 @@ propose  --->  [Gate A: per-cluster review]  --->  execute
                                               [Gate B: write count]
 ```
 
+### Optional: filter via the rendered HTML report (`--selection`)
+
+The HTML report rendered by `seval-regression-analyze` includes an
+"Include in ADO" checkbox on every regression card and a "Download ADO
+selection" button in the controls bar. The user can uncheck rows they
+don't want filed (e.g. judge-only mismatches, known-flaky assertions,
+environmental noise) and then download a selection JSON:
+
+```
+<slug>_ado_selection.json
+{
+  "manifest_slug": "<slug>",
+  "exported_at":   "<iso-8601>",
+  "format":        "seval-ado-selection/v1",
+  "selections":    [
+    { "id": "<10-char-id>", "include": true|false },
+    ...
+  ]
+}
+```
+
+If the user supplies this file, pass it via `--selection <path>` to
+**both** `classify-template` and `propose`. Rows where `include` is
+`false` are dropped before clustering, so they never become bugs (and
+never appear in the classification template the agent has to author).
+Rows not mentioned default to included. If the user did not produce a
+selection file, omit the flag and every regression is fileable.
+
 ### Step 1 -- classify-template (script, deterministic)
 
 ```bash
 python scripts/seval_regression_ado_sync.py classify-template \
   --manifest data/eval-manifests/<date>_<cid>_vs_<eid>_manifest.json \
-  --out      data/eval-ado/<date>_<cid>_vs_<eid>_classifications.json
+  --out      data/eval-ado/<date>_<cid>_vs_<eid>_classifications.json \
+  [--selection <path>/<slug>_ado_selection.json]
 ```
 
 The script dumps every regression into a JSON template with:
@@ -150,8 +179,14 @@ python scripts/seval_regression_ado_sync.py propose \
   --manifest        data/eval-manifests/<date>_<cid>_vs_<eid>_manifest.json \
   --classifications data/eval-ado/<date>_<cid>_vs_<eid>_classifications.json \
   --report-url      "https://yohncf.github.io/OCV-Weekly_temp/eval-reports/<slug>.html" \
-  --out             data/eval-ado/<date>_<cid>_vs_<eid>_proposals.json
+  --out             data/eval-ado/<date>_<cid>_vs_<eid>_proposals.json \
+  [--selection      <path>/<slug>_ado_selection.json]
 ```
+
+`--selection` is optional but **must match the file passed to
+`classify-template`**. If you used a selection there and not here (or
+vice versa), `propose` will fail the "classifications cover every
+regression" check.
 
 The `--report-url` is the live URL of the published HTML report (use
 the personal mirror URL when filing into FTE-internal ADO so external

@@ -24,6 +24,7 @@
 | `ocv-ticket-sync` | Match-or-create Azure DevOps work items from the subtopics CSV (P0/P1/P2 rows), with interactive per-row review. Writes ADO URLs back into the CSV so the HTML report renders an ADO ↗ button on each ticket card. Auth via `az login`. |
 | `ocv-weekly` | **Orchestrator.** Runs the full weekly pipeline (`ocv-extract-feedback` → `ocv-extract-dash` → `ocv-analyze-and-ticket` → `ocv-publish-report`) for a date range, pausing once after the subtopics CSV is generated so you can review/edit before publish |
 | `ocv-publish-github` | Uploads the freshly-built OCV weekly HTML report to the OCV-Weekly GitHub Pages site and updates the landing-page manifest |
+| `ocv-draft-email` | Builds a leadership announcement email from the weekly OCV artifacts (manifest + subtopics + report MD) and saves it as a local Classic Outlook draft via a PowerShell COM helper. Optional final step of `ocv-weekly` |
 | `ocv-setup` | Walks you through creating a config file for your area |
 
 > **SEVAL eval/regression skills live in the sibling project [`../seval-analysis`](../seval-analysis/AGENTS.md)** (`seval-regression`, `seval-regression-analyze`, `seval-regression-publish`, `seval-regression-ticket-sync`, `seval-synthesize-queries-from-ocv`). They were originally built on top of this OCV tooling and still reuse the shared ADO/owners code in [`../shared`](../shared/README.md). See the top-level [`AGENTS.md`](../AGENTS.md) for the full cross-project map.

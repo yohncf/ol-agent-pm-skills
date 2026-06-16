@@ -161,6 +161,7 @@ def seval_run_url(run_id: str) -> str:
 
 def cmd_classify_template(args: argparse.Namespace) -> None:
     manifest = _load_manifest(args.manifest)
+    _apply_selection(manifest, getattr(args, "selection", None))
     regs = manifest["regressions"]
     template: Dict[str, Any] = {
         "manifest_path": os.path.relpath(args.manifest),
@@ -214,6 +215,7 @@ def cmd_classify_template(args: argparse.Namespace) -> None:
 
 def cmd_propose(args: argparse.Namespace) -> None:
     manifest = _load_manifest(args.manifest)
+    _apply_selection(manifest, getattr(args, "selection", None))
     classifications = _load_classifications(args.classifications)
     owners_cfg = load_owner_config(args.owners_config)
 
@@ -650,6 +652,43 @@ def _load_classifications(path: str) -> Dict[str, Any]:
     return _read_json(path)
 
 
+def _apply_selection(manifest: Dict[str, Any], selection_path: Optional[str]) -> None:
+    """Drop regressions where the selection file marks `include: false`.
+
+    The selection file is the JSON exported from the rendered HTML report's
+    "Download ADO selection" button. Schema:
+
+        {
+          "manifest_slug": "...",
+          "exported_at": "...",
+          "selections": [ { "id": "<10-char>", "include": true|false }, ... ]
+        }
+
+    Rows whose id is not mentioned default to included (matches the HTML
+    default-on doctrine). Mutates `manifest["regressions"]` in place.
+    """
+    if not selection_path:
+        return
+    payload = _read_json(selection_path)
+    selections = payload.get("selections") or []
+    excluded_ids = {
+        s["id"] for s in selections
+        if isinstance(s, dict) and s.get("id") and s.get("include") is False
+    }
+    if not excluded_ids:
+        print(f"[seval-ado] Selection file {selection_path} had no excludes; "
+              f"keeping all {len(manifest['regressions'])} regression(s).")
+        return
+    before = len(manifest["regressions"])
+    kept = [r for r in manifest["regressions"] if r["id"] not in excluded_ids]
+    dropped = before - len(kept)
+    manifest["regressions"] = kept
+    slug = payload.get("manifest_slug", "<no-slug>")
+    print(f"[seval-ado] Applied selection from {selection_path} "
+          f"(slug={slug}): excluded {dropped} of {before} regression(s); "
+          f"{len(kept)} remain.")
+
+
 def _read_json(path: str) -> Dict[str, Any]:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -676,6 +715,10 @@ def main() -> None:
                     help="Path to the regression manifest JSON.")
     p1.add_argument("--out", required=True,
                     help="Output path for the classifications template JSON.")
+    p1.add_argument("--selection", default=None,
+                    help="Optional path to an ADO-selection JSON exported "
+                         "from the rendered HTML report. Regressions marked "
+                         "include=false are dropped before templating.")
     p1.set_defaults(func=cmd_classify_template)
 
     p2 = sub.add_parser("propose",
@@ -689,6 +732,11 @@ def main() -> None:
                          "every bug body).")
     p2.add_argument("--out", required=True,
                     help="Output path for the proposals JSON.")
+    p2.add_argument("--selection", default=None,
+                    help="Optional path to an ADO-selection JSON exported "
+                         "from the rendered HTML report. Regressions marked "
+                         "include=false are dropped before clustering. Must "
+                         "match the --selection used for classify-template.")
     p2.add_argument("--area-path", default=DEFAULT_AREA_PATH)
     p2.add_argument("--iteration", default=DEFAULT_ITERATION)
     p2.add_argument("--work-item-type", default=DEFAULT_WORK_ITEM_TYPE)
