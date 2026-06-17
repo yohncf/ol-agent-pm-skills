@@ -25,7 +25,7 @@ Two-gate doctrine (mirrors publish_to_github.py + ado_sync.py):
 Usage:
   python scripts/publish_eval_regression_report.py \
       --manifest data/eval-manifests/<date>_<cid>_vs_<eid>_manifest.json \
-      --html     output/eval-regression_<date>_<cid>_vs_<eid>.html \
+      --html     output/seval/regression/eval-regression_<date>_<cid>_vs_<eid>.html \
       --highlights "<one-line summary>"
 """
 
@@ -56,8 +56,26 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 
-DEFAULT_REPO = (Path(__file__).resolve().parent.parent / "_ocv_weekly_repo")
+REPO_ROOT = Path(__file__).resolve().parents[2]   # OLAgentWork/ (monorepo root)
+DEFAULT_REPO = REPO_ROOT / "_ocv_weekly_repo"
 DEFAULT_GITHUB_URL = "https://github.com/gim-home/OCV-Weekly.git"
+
+
+def _resolve_input(path: Path) -> Path:
+    """Resolve a relative input path robustly regardless of the working
+    directory: try it as given (cwd-relative) first, then against the
+    monorepo root. Returns the first existing candidate, else the
+    monorepo-root candidate so error messages point at the canonical
+    location. Absolute paths are returned unchanged."""
+    if path.is_absolute():
+        return path
+    cwd_candidate = Path.cwd() / path
+    if cwd_candidate.exists():
+        return cwd_candidate
+    root_candidate = REPO_ROOT / path
+    if root_candidate.exists():
+        return root_candidate
+    return root_candidate
 
 
 def _default_owner() -> str:
@@ -155,6 +173,9 @@ def build_entry(manifest: Dict[str, Any], slug: str, filename: str, highlights: 
     pass_delta = round(
         (e.get("experiment_side_pass_rate", 0.0) - c.get("experiment_side_pass_rate", 0.0)) * 100, 2
     )
+    pass_delta_ctrl = round(
+        (e.get("control_side_pass_rate", 0.0) - c.get("control_side_pass_rate", 0.0)) * 100, 2
+    )
     return {
         "slug": slug,
         "label": build_label(manifest),
@@ -169,6 +190,13 @@ def build_entry(manifest: Dict[str, Any], slug: str, filename: str, highlights: 
             "comparable": summary["matched_pairs"],
         },
         "pass_rate_delta_pp": pass_delta,
+        "pass_rate_delta_pp_control": pass_delta_ctrl,
+        "pass_rates": {
+            "latest_control_side": e.get("control_side_pass_rate"),
+            "latest_experiment_side": e.get("experiment_side_pass_rate"),
+            "base_control_side": c.get("control_side_pass_rate"),
+            "base_experiment_side": c.get("experiment_side_pass_rate"),
+        },
         "highlights": highlights,
         "published": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
     }
@@ -311,6 +339,34 @@ h1.title { font-family: var(--font-display); font-weight: 500; font-size: 32px; 
 }
 
 footer { margin-top: 60px; color: var(--text-faint); font-size: 12px; }
+
+/* Performance trend panel */
+.trend { margin-top: 28px; }
+.trend-card {
+  background: var(--surface); border: 1px solid var(--outline); border-radius: 14px;
+  padding: 18px 18px 14px;
+}
+.trend-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.trend-title { font-family: var(--font-display); font-weight: 500; font-size: 18px; color: var(--text); }
+.trend-sub { font-size: 12px; color: var(--text-faint); }
+.trend-stats { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0 18px; }
+.stat {
+  flex: 1 1 150px; background: var(--surface-1); border: 1px solid var(--outline);
+  border-radius: 10px; padding: 10px 12px;
+}
+.stat .lbl { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.4px; }
+.stat .val { font-family: var(--font-mono); font-size: 22px; font-weight: 500; color: var(--text); margin-top: 2px; }
+.stat .val.down { color: var(--error); }
+.stat .val.up { color: var(--tertiary); }
+.stat .sfx { font-size: 12px; color: var(--text-faint); margin-left: 4px; }
+.chart-block { margin-top: 10px; }
+.chart-block + .chart-block { margin-top: 22px; }
+.chart-cap { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+.chart-name { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--text-faint); }
+.legend .key { display: inline-flex; align-items: center; gap: 5px; }
+.legend .swatch { width: 18px; height: 3px; border-radius: 2px; display: inline-block; }
+.chart-svg { width: 100%; height: auto; display: block; }
 </style>
 </head>
 <body>
@@ -333,6 +389,8 @@ footer { margin-top: 60px; color: var(--text-faint); font-size: 12px; }
   <p class="subtitle" style="font-size:12px">Owner: {{OWNER}}</p>
 </header>
 
+{{TREND}}
+
 <section class="list">
 {{CARDS}}
 </section>
@@ -343,6 +401,209 @@ footer { margin-top: 60px; color: var(--text-faint); font-size: 12px; }
 </body>
 </html>
 """
+
+
+def _nice_ceil(v: float) -> float:
+    """Round a positive number up to a clean axis bound (1/2/5 x 10^n)."""
+    if v <= 0:
+        return 1.0
+    import math
+    exp = math.floor(math.log10(v))
+    base = 10 ** exp
+    for m in (1, 2, 2.5, 5, 10):
+        if v <= m * base:
+            return m * base
+    return 10 * base
+
+
+def render_trend(reports: List[Dict[str, Any]]) -> str:
+    """Inline-SVG performance-trend panel for the top of eval.html.
+
+    Plots, across every published run (oldest -> newest): regressions per run
+    (total / Mainline-side / CodeGen-side) and the CodeGen-side pass-rate change
+    vs the base run (pp). Self-contained (no JS / no external chart lib) and
+    dark-themed to match the listing page.
+    """
+    if not reports:
+        return ""
+
+    # Theme palette (kept in sync with the template :root vars).
+    C_TOTAL, C_CTRL, C_EXPR = "#a8c7fa", "#d29922", "#a371f7"
+    C_GREEN, C_RED = "#a4ccaf", "#ffb4ab"
+    C_GRID, C_AXIS, C_TXT, C_FAINT = "#2a2f36", "#43474e", "#c4c6cf", "#8a8d94"
+
+    pts = []
+    for r in reports:
+        reg = r.get("regressions", {}) or {}
+        cc = reg.get("control_vs_control", 0) or 0
+        ee = reg.get("experiment_vs_experiment", 0) or 0
+        pts.append({
+            "date": r.get("date", ""),
+            "total": reg.get("total", cc + ee),
+            "cc": cc,
+            "ee": ee,
+            "comparable": reg.get("comparable", 0) or 0,
+            "delta": float(r.get("pass_rate_delta_pp", 0.0) or 0.0),
+        })
+    pts.sort(key=lambda p: p["date"])
+    n = len(pts)
+
+    # ---- Stat callouts (latest run + run-over-run direction) ----
+    latest = pts[-1]
+    prev = pts[-2] if n >= 2 else None
+    if prev is not None:
+        dt = latest["total"] - prev["total"]
+        # Fewer regressions run-over-run is an improvement.
+        dir_cls = "up" if dt < 0 else ("down" if dt > 0 else "")
+        dir_txt = f"{'+' if dt > 0 else ''}{dt} vs prev run"
+    else:
+        dir_cls, dir_txt = "", "first run"
+    d = latest["delta"]
+    d_cls = "down" if d < 0 else ("up" if d > 0 else "")
+    d_str = f"{'+' if d >= 0 else ''}{d:g}"
+    stats = (
+        '<div class="trend-stats">'
+        f'<div class="stat"><div class="lbl">Latest regressions</div>'
+        f'<div class="val">{latest["total"]}<span class="sfx">/ {latest["comparable"]} comparable</span></div></div>'
+        f'<div class="stat"><div class="lbl">Run-over-run</div>'
+        f'<div class="val {dir_cls}">{html.escape(dir_txt)}</div></div>'
+        f'<div class="stat"><div class="lbl">Pass-rate &Delta; (CodeGen)</div>'
+        f'<div class="val {d_cls}">{html.escape(d_str)}<span class="sfx">pp</span></div></div>'
+        f'<div class="stat"><div class="lbl">Runs tracked</div>'
+        f'<div class="val">{n}</div></div>'
+        '</div>'
+    )
+
+    def xcoord(i: int, left: float, plot_w: float) -> float:
+        return left + (plot_w * i / (n - 1) if n > 1 else plot_w / 2)
+
+    # ---- Chart A: regressions per run ----
+    W, H = 1000.0, 300.0
+    L, R, T, B = 48.0, 16.0, 16.0, 36.0
+    pw, ph = W - L - R, H - T - B
+    y0, y1 = T, T + ph
+    ymax = _nice_ceil(max((p["total"] for p in pts), default=1))
+
+    def ay(v: float) -> float:
+        return y1 - (v / ymax) * ph if ymax else y1
+
+    grid, ylabels = [], []
+    for k in range(5):
+        gv = ymax * k / 4
+        gy = ay(gv)
+        grid.append(f'<line x1="{L}" y1="{gy:.1f}" x2="{W - R}" y2="{gy:.1f}" '
+                    f'stroke="{C_GRID}" stroke-width="1"/>')
+        ylabels.append(f'<text x="{L - 8}" y="{gy + 4:.1f}" text-anchor="end" '
+                       f'font-size="11" fill="{C_FAINT}" font-family="monospace">{gv:g}</text>')
+
+    def series(key: str, color: str, width: float, dots: bool = True) -> str:
+        ptsxy = [(xcoord(i, L, pw), ay(p[key])) for i, p in enumerate(pts)]
+        poly = " ".join(f"{x:.1f},{y:.1f}" for x, y in ptsxy)
+        out = [f'<polyline points="{poly}" fill="none" stroke="{color}" '
+               f'stroke-width="{width}" stroke-linejoin="round" stroke-linecap="round"/>']
+        if dots:
+            for (x, y), p in zip(ptsxy, pts):
+                out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.2" fill="{color}">'
+                           f'<title>{html.escape(p["date"])}: {p[key]} ({key})</title></circle>')
+        return "".join(out)
+
+    xlabels = []
+    for i, p in enumerate(pts):
+        x = xcoord(i, L, pw)
+        xlabels.append(f'<text x="{x:.1f}" y="{y1 + 20:.1f}" text-anchor="middle" '
+                       f'font-size="10" fill="{C_FAINT}" font-family="monospace">'
+                       f'{html.escape(p["date"][5:])}</text>')
+    # Value labels on the total line.
+    tvals = []
+    for i, p in enumerate(pts):
+        x, y = xcoord(i, L, pw), ay(p["total"])
+        tvals.append(f'<text x="{x:.1f}" y="{y - 8:.1f}" text-anchor="middle" '
+                     f'font-size="11" fill="{C_TXT}" font-family="monospace" font-weight="600">{p["total"]}</text>')
+
+    chart_a = (
+        f'<svg class="chart-svg" viewBox="0 0 {W:g} {H:g}" '
+        f'preserveAspectRatio="xMidYMid meet" role="img" '
+        f'aria-label="Regressions per run over time">'
+        f'{"".join(grid)}{"".join(ylabels)}'
+        f'{series("ee", C_EXPR, 1.6)}{series("cc", C_CTRL, 1.6)}{series("total", C_TOTAL, 2.6)}'
+        f'{"".join(tvals)}{"".join(xlabels)}'
+        f'</svg>'
+    )
+
+    # ---- Chart B: pass-rate delta (pp) vs base, zero baseline ----
+    W2, H2 = 1000.0, 170.0
+    L2, R2, T2, B2 = 48.0, 16.0, 16.0, 32.0
+    pw2, ph2 = W2 - L2 - R2, H2 - T2 - B2
+    amax = _nice_ceil(max((abs(p["delta"]) for p in pts), default=1))
+    zy = T2 + ph2 / 2
+
+    def by(v: float) -> float:
+        return zy - (v / amax) * (ph2 / 2) if amax else zy
+
+    grid_b = [f'<line x1="{L2}" y1="{zy:.1f}" x2="{W2 - R2}" y2="{zy:.1f}" '
+              f'stroke="{C_AXIS}" stroke-width="1" stroke-dasharray="4 3"/>',
+              f'<text x="{L2 - 8}" y="{zy + 4:.1f}" text-anchor="end" font-size="11" '
+              f'fill="{C_FAINT}" font-family="monospace">0</text>',
+              f'<text x="{L2 - 8}" y="{T2 + 10:.1f}" text-anchor="end" font-size="10" '
+              f'fill="{C_FAINT}" font-family="monospace">+{amax:g}</text>',
+              f'<text x="{L2 - 8}" y="{T2 + ph2 + 2:.1f}" text-anchor="end" font-size="10" '
+              f'fill="{C_FAINT}" font-family="monospace">-{amax:g}</text>']
+    dxy = [(xcoord(i, L2, pw2), by(p["delta"])) for i, p in enumerate(pts)]
+    dpoly = " ".join(f"{x:.1f},{y:.1f}" for x, y in dxy)
+    dmarks = []
+    for (x, y), p in zip(dxy, pts):
+        col = C_GREEN if p["delta"] >= 0 else C_RED
+        dmarks.append(f'<line x1="{x:.1f}" y1="{zy:.1f}" x2="{x:.1f}" y2="{y:.1f}" '
+                      f'stroke="{col}" stroke-width="1" opacity="0.4"/>')
+        dmarks.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="3.4" fill="{col}">'
+                      f'<title>{html.escape(p["date"])}: {p["delta"]:g}pp</title></circle>')
+        ly = y - 8 if p["delta"] >= 0 else y + 16
+        dmarks.append(f'<text x="{x:.1f}" y="{ly:.1f}" text-anchor="middle" font-size="10" '
+                      f'fill="{col}" font-family="monospace">{p["delta"]:g}</text>')
+    xlabels_b = []
+    for i, p in enumerate(pts):
+        x = xcoord(i, L2, pw2)
+        xlabels_b.append(f'<text x="{x:.1f}" y="{H2 - 8:.1f}" text-anchor="middle" '
+                         f'font-size="10" fill="{C_FAINT}" font-family="monospace">'
+                         f'{html.escape(p["date"][5:])}</text>')
+    chart_b = (
+        f'<svg class="chart-svg" viewBox="0 0 {W2:g} {H2:g}" '
+        f'preserveAspectRatio="xMidYMid meet" role="img" '
+        f'aria-label="Pass-rate delta per run over time">'
+        f'{"".join(grid_b)}'
+        f'<polyline points="{dpoly}" fill="none" stroke="{C_FAINT}" stroke-width="1.4" '
+        f'stroke-linejoin="round"/>'
+        f'{"".join(dmarks)}{"".join(xlabels_b)}'
+        f'</svg>'
+    )
+
+    legend_a = (
+        '<div class="legend">'
+        f'<span class="key"><span class="swatch" style="background:{C_TOTAL}"></span>Total</span>'
+        f'<span class="key"><span class="swatch" style="background:{C_CTRL}"></span>Mainline-side</span>'
+        f'<span class="key"><span class="swatch" style="background:{C_EXPR}"></span>CodeGen-side</span>'
+        '</div>'
+    )
+
+    return (
+        '<section class="trend">'
+        '<div class="trend-card">'
+        '<div class="trend-head">'
+        '<div class="trend-title">Performance trend</div>'
+        '<div class="trend-sub">Per-run regressions &amp; pass-rate movement &middot; oldest &rarr; newest</div>'
+        '</div>'
+        f'{stats}'
+        '<div class="chart-block">'
+        f'<div class="chart-cap"><span class="chart-name">Regressions per run</span>{legend_a}</div>'
+        f'{chart_a}'
+        '</div>'
+        '<div class="chart-block">'
+        '<div class="chart-cap"><span class="chart-name">Pass-rate change vs base run (pp) &middot; CodeGen side</span></div>'
+        f'{chart_b}'
+        '</div>'
+        '</div>'
+        '</section>'
+    )
 
 
 def render_eval_html(site_manifest: Dict[str, Any]) -> str:
@@ -385,6 +646,7 @@ def render_eval_html(site_manifest: Dict[str, Any]) -> str:
         "{{TITLE}}": html.escape(title),
         "{{SUBTITLE}}": html.escape(subtitle),
         "{{OWNER}}": html.escape(owner),
+        "{{TREND}}": render_trend(reports),
         "{{CARDS}}": cards_html,
         "{{GENERATED_AT}}": html.escape(_dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")),
         "{{REPORT_COUNT}}": str(len(reports)),
@@ -645,6 +907,9 @@ def main() -> int:
                    help="Override path to the personal-mirror script. Default: "
                         "<ocv-extraction-root>/mirror_to_personal_v2.ps1.")
     args = p.parse_args()
+
+    args.manifest = _resolve_input(args.manifest)
+    args.html = _resolve_input(args.html)
 
     if not args.manifest.exists():
         sys.exit(f"Manifest not found: {args.manifest}")
