@@ -218,9 +218,9 @@ def cmd_propose(args: argparse.Namespace) -> None:
     _apply_selection(manifest, getattr(args, "selection", None))
     owners_cfg = load_owner_config(args.owners_config)
 
-    cluster_by, split_by_tool = _resolve_cluster_opts(args)
+    cluster_by, split_by_tool, merge_sides = _resolve_cluster_opts(args)
     if cluster_by == "theme":
-        _propose_theme(args, manifest, owners_cfg, split_by_tool)
+        _propose_theme(args, manifest, owners_cfg, split_by_tool, merge_sides)
         return
 
     if not getattr(args, "classifications", None):
@@ -456,9 +456,9 @@ def _read_selection_options(selection_path: Optional[str]) -> Dict[str, Any]:
     return opts if isinstance(opts, dict) else {}
 
 
-def _resolve_cluster_opts(args: argparse.Namespace) -> Tuple[str, bool]:
-    """Resolve (cluster_by, split_by_tool) from CLI flags, then the selection
-    file's options, then defaults (topic / split-on)."""
+def _resolve_cluster_opts(args: argparse.Namespace) -> Tuple[str, bool, bool]:
+    """Resolve (cluster_by, split_by_tool, merge_sides) from CLI flags, then the
+    selection file's options, then defaults (topic / split-on / sides-split)."""
     opts = _read_selection_options(getattr(args, "selection", None))
     cluster_by = getattr(args, "cluster_by", None) or opts.get("cluster_by") or "topic"
     if cluster_by not in ("topic", "theme"):
@@ -468,7 +468,12 @@ def _resolve_cluster_opts(args: argparse.Namespace) -> Tuple[str, bool]:
         sbt = opts.get("split_by_tool")
     if sbt is None:
         sbt = True
-    return cluster_by, bool(sbt)
+    ms = getattr(args, "merge_sides", None)
+    if ms is None:
+        ms = opts.get("merge_sides")
+    if ms is None:
+        ms = False
+    return cluster_by, bool(sbt), bool(ms)
 
 
 def _theme_title(manifest: Dict[str, Any], theme_key: str) -> str:
@@ -480,8 +485,20 @@ def _theme_title(manifest: Dict[str, Any], theme_key: str) -> str:
     return theme_key or "Uncategorized"
 
 
+# Maps a SEVAL failing tool/surface onto the OCV owner-config *category* so the
+# shared owners rules (which key on Drafting / Replying / Scheduling / Search /
+# ...) route theme-mode bugs to the right engineer. Surfaces with no owner in
+# Owners.csv (inbox / triage / todo) are intentionally absent and stay
+# unassigned for manual triage. `oof` routes via its own title keyword.
+TOOL_ROUTING_CATEGORY: Dict[str, str] = {
+    "calendar": "Scheduling",
+    "mail": "Drafting",
+}
+
+
 def _propose_theme(args: argparse.Namespace, manifest: Dict[str, Any],
-                   owners_cfg: Any, split_by_tool: bool) -> None:
+                   owners_cfg: Any, split_by_tool: bool,
+                   merge_sides: bool = False) -> None:
     """Cluster regressions by (failing_side, theme[, tool]) and emit proposals.
 
     Unlike the OCV-topic path this needs no classification step: the `theme`
@@ -489,6 +506,11 @@ def _propose_theme(args: argparse.Namespace, manifest: Dict[str, Any],
     pipeline). With split_by_tool the cluster key includes the failing tool so
     each bug is one (side, theme, tool) -> title "[tool] <theme>"; otherwise it
     is one (side, theme) bug (maximum grouping).
+
+    With merge_sides the failing model slot (Mainline vs CodeGen) is dropped
+    from the cluster key, so a single bug spans regressions on both sides for
+    the same theme/tool (fewer, broader tickets). Each assertion in the body
+    is still tagged with the side it failed on.
     """
     report_url = args.report_url
     publish_safety = manifest.get("publish_safety", {})
@@ -508,17 +530,23 @@ def _propose_theme(args: argparse.Namespace, manifest: Dict[str, Any],
         side = _side_label_for_comparison(r["comparison"], manifest)
         theme = (r.get("theme") or "uncategorized").strip() or "uncategorized"
         tool = (r.get("tool") or "general").strip() or "general"
-        key = (side, theme, tool) if split_by_tool else (side, theme)
+        if merge_sides:
+            key = (theme, tool) if split_by_tool else (theme,)
+        else:
+            key = (side, theme, tool) if split_by_tool else (side, theme)
         bucket = clusters_by_key.setdefault(key, {
             "failing_side": side,
+            "sides": set(),
             "theme": theme,
             "tools": set(),
             "regressions": [],
         })
+        bucket["sides"].add(side)
         bucket["tools"].add(tool)
         bucket["regressions"].append({
             "id": r["id"],
             "comparison": r["comparison"],
+            "side": side,
             "level": r["level"],
             "segment": r["segment"],
             "tool": tool,
@@ -531,11 +559,14 @@ def _propose_theme(args: argparse.Namespace, manifest: Dict[str, Any],
 
     clusters: List[Dict[str, Any]] = []
     for key, bucket in sorted(clusters_by_key.items()):
-        side = bucket["failing_side"]
         theme = bucket["theme"]
         regs = bucket["regressions"]
         tools = sorted(bucket["tools"])
+        sides = sorted(bucket["sides"])
         theme_title = _theme_title(manifest, theme)
+        # For merged clusters the "side" is the set of slots present.
+        side = "+".join(sides) if merge_sides else bucket["failing_side"]
+        side_in_title = "" if merge_sides else side
 
         failing_run = exp
         passed_run = ctrl
@@ -544,35 +575,42 @@ def _propose_theme(args: argparse.Namespace, manifest: Dict[str, Any],
         priority = PRIORITY_CRITICAL if n_crit > 0 else PRIORITY_EXPECTED
         n = len(regs)
         plural = "s" if n != 1 else ""
+        side_suffix = f"{side_in_title}, " if side_in_title else ""
 
         if split_by_tool:
             tool = tools[0]
-            cluster_id = hashlib.sha1(
-                f"{side}|theme:{theme}|tool:{tool}|{failing_run['id']}".encode("utf-8")
-            ).hexdigest()[:10]
+            id_seed = (f"theme:{theme}|tool:{tool}|{failing_run['id']}"
+                       if merge_sides else
+                       f"{side}|theme:{theme}|tool:{tool}|{failing_run['id']}")
+            cluster_id = hashlib.sha1(id_seed.encode("utf-8")).hexdigest()[:10]
             default_title = (
                 f"[SEVAL Regression] [{tool}] {theme_title} "
-                f"({side}, {n} assertion{plural})"
+                f"({side_suffix}{n} assertion{plural})"
             )
             category = tool
             routing_topic = theme_title
         else:
-            cluster_id = hashlib.sha1(
-                f"{side}|theme:{theme}|{failing_run['id']}".encode("utf-8")
-            ).hexdigest()[:10]
-            tool_note = f" [{', '.join(tools)}]" if tools else ""
+            id_seed = (f"theme:{theme}|{failing_run['id']}"
+                       if merge_sides else
+                       f"{side}|theme:{theme}|{failing_run['id']}")
+            cluster_id = hashlib.sha1(id_seed.encode("utf-8")).hexdigest()[:10]
             default_title = (
                 f"[SEVAL Regression] {theme_title} "
-                f"({side}, {n} assertion{plural})"
+                f"({side_suffix}{n} assertion{plural})"
             )
             category = ", ".join(tools)
             routing_topic = theme_title
 
-        # Owner routing: the bracketed tool + theme title live in the title so
-        # title_keywords rules in the owners config can match (e.g. 'calendar',
-        # 'oof', 'tasks', 'rules', 'source grounding').
+        # Owner routing: prefer the OCV owner-config *category* mapped from the
+        # failing tool/surface (Drafting->Ethan, Scheduling->Ravi, ...) so the
+        # shared rules fire deterministically. The bracketed tool + theme title
+        # still live in the title so keyword rules (e.g. 'oof') can match.
+        if split_by_tool:
+            routing_category = TOOL_ROUTING_CATEGORY.get(tools[0], "")
+        else:
+            routing_category = ""
         assignee, assignee_name, rule_label = compute_assignee(
-            default_title, category if split_by_tool else "", routing_topic, owners_cfg
+            default_title, routing_category, routing_topic, owners_cfg
         )
 
         body_html = _render_theme_cluster_body(
@@ -584,11 +622,14 @@ def _propose_theme(args: argparse.Namespace, manifest: Dict[str, Any],
             ctrl_run=ctrl,
             exp_run=exp,
             report_url=report_url,
+            merged=merge_sides,
         )
 
         clusters.append({
             "cluster_id": cluster_id,
             "failing_side": side,
+            "sides": sides,
+            "merged_sides": merge_sides,
             "failing_run": {
                 "id": str(failing_run["id"]),
                 "name": failing_run["name"],
@@ -634,6 +675,7 @@ def _propose_theme(args: argparse.Namespace, manifest: Dict[str, Any],
         "classifications_path": None,
         "cluster_mode": "theme",
         "split_by_tool": split_by_tool,
+        "merge_sides": merge_sides,
         "report_url": report_url,
         "ado": {
             "org": ADO_ORG,
@@ -678,14 +720,33 @@ def _render_theme_cluster_body(*, cluster_id: str, failing_side: str,
                                theme_title: str, tools: List[str],
                                regressions: List[Dict[str, Any]],
                                ctrl_run: Dict[str, Any], exp_run: Dict[str, Any],
-                               report_url: str) -> str:
-    """Render the ADO bug body for a theme cluster (theme + tool framing)."""
+                               report_url: str, merged: bool = False) -> str:
+    """Render the ADO bug body for a theme cluster (theme + tool framing).
+
+    When ``merged`` the cluster spans both model slots; the header summarises
+    the per-side split and each assertion is tagged with the slot it failed on.
+    """
     ctrl_url = seval_run_url(str(ctrl_run["id"]))
     exp_url = seval_run_url(str(exp_run["id"]))
+    if merged:
+        from collections import Counter
+        side_counts = Counter(r.get("side", "") for r in regressions)
+        side_breakdown = ", ".join(
+            f"{s}: {c}" for s, c in sorted(side_counts.items()) if s
+        )
+        model_line = (
+            f'<p><strong>Failing model slots:</strong> '
+            f'{esc(side_breakdown or failing_side)} '
+            f'(this bug merges both slots for the same theme/tool)</p>'
+        )
+    else:
+        model_line = (
+            f'<p><strong>Failing model:</strong> {esc(failing_side)} '
+            f'(slot {"0 / control" if failing_side == ctrl_run["name"] else "1 / experiment"})</p>'
+        )
     header = (
         f'<h2>SEVAL Regression &mdash; {esc(failing_side)} side</h2>'
-        f'<p><strong>Failing model:</strong> {esc(failing_side)} '
-        f'(slot {"0 / control" if failing_side == ctrl_run["name"] else "1 / experiment"})</p>'
+        f'{model_line}'
         f'<p><strong>Base SEVAL:</strong> '
         f'<a href="{esc(ctrl_url)}">#{esc(str(ctrl_run["id"]))}</a> '
         f'({esc(ctrl_run["run_date"])})<br/>'
@@ -702,6 +763,10 @@ def _render_theme_cluster_body(*, cluster_id: str, failing_side: str,
     blocks: List[str] = []
     to_show = regressions[:MAX_ASSERTIONS_INLINE]
     for i, r in enumerate(to_show, start=1):
+        reg_side = r.get("side") or failing_side
+        side_html = (
+            f'<p><em>Failing slot:</em> {esc(reg_side)}</p>' if merged else ""
+        )
         tool_html = (
             f'<p><em>Tool:</em> {esc(r.get("tool", ""))}</p>'
             if r.get("tool") else ""
@@ -709,12 +774,13 @@ def _render_theme_cluster_body(*, cluster_id: str, failing_side: str,
         blocks.append(
             f'<h3>Assertion {i} of {len(regressions)} '
             f'(level: {esc(r["level"])}, id: <code>{esc(r["id"])}</code>)</h3>'
+            f'{side_html}'
             f'<p><strong>Query:</strong><br/>{esc(r["query"])}</p>'
             f'<p><strong>Assertion:</strong><br/>{esc(r["assertion"])}</p>'
             f'<p><strong>Why it failed:</strong><br/>{esc(r["why_failed"])}</p>'
             f'{tool_html}'
             f'<details><summary><strong>Failing model reply</strong> '
-            f'(from {esc(failing_side)} @ #{esc(str(exp_run["id"]))})</summary>'
+            f'(from {esc(reg_side)} @ #{esc(str(exp_run["id"]))})</summary>'
             f'<pre style="white-space:pre-wrap;font-family:Consolas,monospace;">'
             f'{esc(_trunc(r["reply_failed"], REPLY_TRUNC_CHARS))}'
             f'</pre></details>'
@@ -1064,6 +1130,14 @@ def main() -> None:
                          "'[tool] <theme>' (for owner routing). Default: take "
                          "from the selection file's options.split_by_tool, "
                          "else on.")
+    p2.add_argument("--merge-sides", default=None,
+                    action=argparse.BooleanOptionalAction,
+                    help="In --cluster-by theme mode, merge the failing model "
+                         "slot (Mainline vs CodeGen) so one bug spans both "
+                         "sides for the same theme/tool (fewer, broader "
+                         "tickets). Each assertion is still tagged with its "
+                         "failing slot in the body. Default: take from the "
+                         "selection file's options.merge_sides, else off.")
     p2.add_argument("--selection", default=None,
                     help="Optional path to an ADO-selection JSON exported "
                          "from the rendered HTML report. Regressions marked "

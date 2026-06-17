@@ -126,7 +126,8 @@ environmental noise) and then download a selection JSON:
   "format":        "seval-ado-selection/v1",
   "options":       {
     "cluster_by":    "theme",       // drives --cluster-by when the flag is omitted
-    "split_by_tool": true            // drives --split-by-tool when the flag is omitted
+    "split_by_tool": true,           // drives --split-by-tool when the flag is omitted
+    "merge_sides":   false           // drives --merge-sides when the flag is omitted
   },
   "selections":    [
     { "id": "<10-char-id>", "theme": "<theme-key>", "tool": "<tool-key>", "include": true|false },
@@ -256,6 +257,11 @@ python scripts/seval_regression_ado_sync.py propose \
 # One Bug per (failing_side, theme) -- maximum grouping, no tool prefix
 python scripts/seval_regression_ado_sync.py propose ... \
   --cluster-by theme --no-split-by-tool ...
+
+# Merge both model slots into one Bug per (theme, tool) -- fewer, broader
+# tickets; each assertion is tagged with its failing slot in the body
+python scripts/seval_regression_ado_sync.py propose ... \
+  --cluster-by theme --split-by-tool --merge-sides ...
 ```
 
 Notes:
@@ -263,13 +269,32 @@ Notes:
 - `--classifications` is **not** required (and is ignored) in theme
   mode. The `theme` and `tool` fields come straight from the manifest,
   which `seval-regression-analyze` authors during analysis.
-- If `--cluster-by` / `--split-by-tool` are omitted, they default from
-  the selection file's `options` block (see above), else `topic` /
-  on. So a selection exported with the report's tool toggle on will
-  produce theme+tool tickets with no extra flags.
-- Owner routing still runs `compute_assignee()`; the `[<tool>]` prefix
-  in the title lets `title_keywords` rules in the owners config route
-  by surface (e.g. `oof`, `calendar`, `tasks`).
+- If `--cluster-by` / `--split-by-tool` / `--merge-sides` are omitted,
+  they default from the selection file's `options` block (see above),
+  else `topic` / on / off. So a selection exported with the report's
+  tool toggle on will produce theme+tool tickets with no extra flags.
+- **`--merge-sides`** drops the failing model slot (Mainline vs CodeGen)
+  from the cluster key, so a single Bug spans regressions from both
+  slots for the same theme/tool. The title loses its `(<side>, ...)`
+  qualifier and reads `[SEVAL Regression] [<tool>] <Theme>
+  (N assertions)`; the body header summarises the per-slot split and
+  every assertion is tagged with the slot it failed on. Use this when
+  the user wants the fewest tickets and treats a theme/tool as one
+  engineering signal regardless of slot. Default is **off** (one Bug
+  per slot). Set `options.merge_sides: true` in the selection JSON to
+  make it the default for a run.
+- Owner routing runs `compute_assignee()` against the shared owners
+  config. In theme+tool mode the failing **tool/surface** is mapped to
+  the config's routing *category* via `TOOL_ROUTING_CATEGORY`
+  (`calendar -> Scheduling`, `mail -> Drafting`) so the real category
+  rules fire deterministically -- instead of relying on a side-name
+  appearing in the title. `oof` still routes by its title keyword.
+  **Surfaces with no owner in `ado_owners_outlook-agent.json`
+  (`inbox`, `triage`, `todo`) stay unassigned** and are filed for
+  manual triage; the owners config (sourced from Owners.csv, May 2026)
+  intentionally leaves Triage / Tasks / Inbox unowned. To auto-route
+  these, add a rule to the shared config (or extend
+  `TOOL_ROUTING_CATEGORY`) -- do **not** invent owners ad hoc.
 - Gates A and B, the 25-assertion inline cap, priority (P1 if any
   critical), tags, and the two-gate `execute` flow are all identical
   to topic mode.
