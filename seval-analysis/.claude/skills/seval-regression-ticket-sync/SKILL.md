@@ -5,6 +5,8 @@ description: >
   regression report. Reads the manifest produced by `seval-regression-analyze`,
   classifies every regression into the OCV 13-topic taxonomy + Category,
   clusters by (failing_side, topic, category), and files one Bug per cluster.
+  Alternatively clusters by the report's theme + tool sub-category
+  (`--cluster-by theme`) for "[tool] theme" tickets routed to surface owners.
   Bugs are tagged `OutlookAgent` and `SevalRegression`, auto-assigned via
   `../shared/configs/ado_owners_outlook-agent.json`, and include base + latest SEVAL
   job URLs, failing model, every rolled-up (query, assertion, why_failed,
@@ -82,6 +84,16 @@ Do **not** invoke for:
   Drafting/T4 regression is a different engineering signal from a
   CodeGen-side Drafting/T4 regression even when the assertion text
   matches.
+  - **Alternative grouping (`--cluster-by theme`):** instead of the
+    OCV topic taxonomy, cluster by the report's `theme` field
+    (engineering theme authored during analysis). This needs **no**
+    classification step. By default it also splits each theme by the
+    failing `tool` sub-category (mail, inbox, calendar, triage, todo,
+    oof, ...) so each Bug routes to the right owner and the title reads
+    `[SEVAL Regression] [<tool>] <Theme> (<side>, N assertions)`. Pass
+    `--no-split-by-tool` to get exactly one Bug per `(failing_side,
+    theme)` (maximum grouping, no tool prefix). See
+    "Alternative: cluster by theme" below.
 - **Cap inline assertions per Bug:** 25. Clusters with more than 25
   rolled-up assertions show the first 25 and add a "+ N additional
   in the full report" line that points at the published HTML.
@@ -112,12 +124,21 @@ environmental noise) and then download a selection JSON:
   "manifest_slug": "<slug>",
   "exported_at":   "<iso-8601>",
   "format":        "seval-ado-selection/v1",
+  "options":       {
+    "cluster_by":    "theme",       // drives --cluster-by when the flag is omitted
+    "split_by_tool": true            // drives --split-by-tool when the flag is omitted
+  },
   "selections":    [
-    { "id": "<10-char-id>", "include": true|false },
+    { "id": "<10-char-id>", "theme": "<theme-key>", "tool": "<tool-key>", "include": true|false },
     ...
   ]
 }
 ```
+
+The `options` block records the report's "Sub-category by tool" toggle
+and the theme-clustering intent. When you run `propose` with
+`--selection <file>` but **without** `--cluster-by` / `--split-by-tool`,
+those flags fall back to `options`; an explicit CLI flag always wins.
 
 If the user supplies this file, pass it via `--selection <path>` to
 **both** `classify-template` and `propose`. Rows where `include` is
@@ -215,6 +236,43 @@ The script:
      URLs, the failing model, per-assertion blocks (query, assertion,
      why_failed, failed-reply, judge rationale), and a link to
      `report_url`.
+
+### Alternative: cluster by theme (`--cluster-by theme`)
+
+When the user wants tickets grouped by the report's **themes** (and
+routed by **tool**) rather than the OCV topic taxonomy, skip the
+classify-template / classification step entirely and run:
+
+```bash
+# One Bug per (failing_side, theme, tool) -> "[<tool>] <Theme>" titles
+python scripts/seval_regression_ado_sync.py propose \
+  --manifest   data/eval-manifests/<date>_<cid>_vs_<eid>_manifest.json \
+  --cluster-by theme \
+  --split-by-tool \
+  --report-url "https://.../<slug>.html" \
+  --out        data/eval-ado/<date>_<cid>_vs_<eid>_proposals.json \
+  [--selection <path>/<slug>_ado_selection.json]
+
+# One Bug per (failing_side, theme) -- maximum grouping, no tool prefix
+python scripts/seval_regression_ado_sync.py propose ... \
+  --cluster-by theme --no-split-by-tool ...
+```
+
+Notes:
+
+- `--classifications` is **not** required (and is ignored) in theme
+  mode. The `theme` and `tool` fields come straight from the manifest,
+  which `seval-regression-analyze` authors during analysis.
+- If `--cluster-by` / `--split-by-tool` are omitted, they default from
+  the selection file's `options` block (see above), else `topic` /
+  on. So a selection exported with the report's tool toggle on will
+  produce theme+tool tickets with no extra flags.
+- Owner routing still runs `compute_assignee()`; the `[<tool>]` prefix
+  in the title lets `title_keywords` rules in the owners config route
+  by surface (e.g. `oof`, `calendar`, `tasks`).
+- Gates A and B, the 25-assertion inline cap, priority (P1 if any
+  critical), tags, and the two-gate `execute` flow are all identical
+  to topic mode.
 
 ### Gate A -- per-cluster review (agent, with the user)
 

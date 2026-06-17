@@ -216,8 +216,18 @@ def cmd_classify_template(args: argparse.Namespace) -> None:
 def cmd_propose(args: argparse.Namespace) -> None:
     manifest = _load_manifest(args.manifest)
     _apply_selection(manifest, getattr(args, "selection", None))
-    classifications = _load_classifications(args.classifications)
     owners_cfg = load_owner_config(args.owners_config)
+
+    cluster_by, split_by_tool = _resolve_cluster_opts(args)
+    if cluster_by == "theme":
+        _propose_theme(args, manifest, owners_cfg, split_by_tool)
+        return
+
+    if not getattr(args, "classifications", None):
+        raise SystemExit(
+            "[seval-ado] --classifications is required for --cluster-by topic."
+        )
+    classifications = _load_classifications(args.classifications)
 
     # Validate classifications cover every regression in the manifest.
     reg_index = {r["id"]: r for r in manifest["regressions"]}
@@ -431,6 +441,309 @@ def _count_by(clusters: List[Dict[str, Any]], key: str) -> Dict[str, int]:
 
 
 # ---------------------------------------------------------------------------
+# Theme clustering (alternative to OCV-topic clustering)
+# ---------------------------------------------------------------------------
+
+def _read_selection_options(selection_path: Optional[str]) -> Dict[str, Any]:
+    """Return the `options` dict from an exported ADO-selection JSON (or {})."""
+    if not selection_path:
+        return {}
+    try:
+        payload = _read_json(selection_path)
+    except Exception:
+        return {}
+    opts = payload.get("options")
+    return opts if isinstance(opts, dict) else {}
+
+
+def _resolve_cluster_opts(args: argparse.Namespace) -> Tuple[str, bool]:
+    """Resolve (cluster_by, split_by_tool) from CLI flags, then the selection
+    file's options, then defaults (topic / split-on)."""
+    opts = _read_selection_options(getattr(args, "selection", None))
+    cluster_by = getattr(args, "cluster_by", None) or opts.get("cluster_by") or "topic"
+    if cluster_by not in ("topic", "theme"):
+        raise SystemExit(f"[seval-ado] invalid --cluster-by {cluster_by!r} (topic|theme).")
+    sbt = getattr(args, "split_by_tool", None)
+    if sbt is None:
+        sbt = opts.get("split_by_tool")
+    if sbt is None:
+        sbt = True
+    return cluster_by, bool(sbt)
+
+
+def _theme_title(manifest: Dict[str, Any], theme_key: str) -> str:
+    """Human-readable short title for a theme key (label up to first ' (')."""
+    for t in manifest.get("themes", []) or []:
+        if t.get("key") == theme_key:
+            label = str(t.get("label", "")).split(" (")[0].strip()
+            return label or theme_key
+    return theme_key or "Uncategorized"
+
+
+def _propose_theme(args: argparse.Namespace, manifest: Dict[str, Any],
+                   owners_cfg: Any, split_by_tool: bool) -> None:
+    """Cluster regressions by (failing_side, theme[, tool]) and emit proposals.
+
+    Unlike the OCV-topic path this needs no classification step: the `theme`
+    and `tool` fields come straight from the manifest (authored by the report
+    pipeline). With split_by_tool the cluster key includes the failing tool so
+    each bug is one (side, theme, tool) -> title "[tool] <theme>"; otherwise it
+    is one (side, theme) bug (maximum grouping).
+    """
+    report_url = args.report_url
+    publish_safety = manifest.get("publish_safety", {})
+    if not publish_safety.get("reviewed_for_publish"):
+        raise SystemExit(
+            "[seval-ado] Refusing to build proposals -- manifest's "
+            "publish_safety.reviewed_for_publish is not true. The "
+            "regression report should be published (or at least reviewed) "
+            "before bugs are filed."
+        )
+
+    ctrl = manifest["control"]
+    exp = manifest["experiment"]
+
+    clusters_by_key: Dict[Tuple[str, ...], Dict[str, Any]] = {}
+    for r in manifest["regressions"]:
+        side = _side_label_for_comparison(r["comparison"], manifest)
+        theme = (r.get("theme") or "uncategorized").strip() or "uncategorized"
+        tool = (r.get("tool") or "general").strip() or "general"
+        key = (side, theme, tool) if split_by_tool else (side, theme)
+        bucket = clusters_by_key.setdefault(key, {
+            "failing_side": side,
+            "theme": theme,
+            "tools": set(),
+            "regressions": [],
+        })
+        bucket["tools"].add(tool)
+        bucket["regressions"].append({
+            "id": r["id"],
+            "comparison": r["comparison"],
+            "level": r["level"],
+            "segment": r["segment"],
+            "tool": tool,
+            "query": r["query"],
+            "assertion": r["assertion"],
+            "why_failed": r.get("why_failed", "") or "",
+            "reply_failed": r.get("reply_failed", "") or "",
+            "rationale_failed": r.get("rationale_failed", "") or "",
+        })
+
+    clusters: List[Dict[str, Any]] = []
+    for key, bucket in sorted(clusters_by_key.items()):
+        side = bucket["failing_side"]
+        theme = bucket["theme"]
+        regs = bucket["regressions"]
+        tools = sorted(bucket["tools"])
+        theme_title = _theme_title(manifest, theme)
+
+        failing_run = exp
+        passed_run = ctrl
+        n_crit = sum(1 for r in regs if r["level"] == "critical")
+        n_exp = sum(1 for r in regs if r["level"] == "expected")
+        priority = PRIORITY_CRITICAL if n_crit > 0 else PRIORITY_EXPECTED
+        n = len(regs)
+        plural = "s" if n != 1 else ""
+
+        if split_by_tool:
+            tool = tools[0]
+            cluster_id = hashlib.sha1(
+                f"{side}|theme:{theme}|tool:{tool}|{failing_run['id']}".encode("utf-8")
+            ).hexdigest()[:10]
+            default_title = (
+                f"[SEVAL Regression] [{tool}] {theme_title} "
+                f"({side}, {n} assertion{plural})"
+            )
+            category = tool
+            routing_topic = theme_title
+        else:
+            cluster_id = hashlib.sha1(
+                f"{side}|theme:{theme}|{failing_run['id']}".encode("utf-8")
+            ).hexdigest()[:10]
+            tool_note = f" [{', '.join(tools)}]" if tools else ""
+            default_title = (
+                f"[SEVAL Regression] {theme_title} "
+                f"({side}, {n} assertion{plural})"
+            )
+            category = ", ".join(tools)
+            routing_topic = theme_title
+
+        # Owner routing: the bracketed tool + theme title live in the title so
+        # title_keywords rules in the owners config can match (e.g. 'calendar',
+        # 'oof', 'tasks', 'rules', 'source grounding').
+        assignee, assignee_name, rule_label = compute_assignee(
+            default_title, category if split_by_tool else "", routing_topic, owners_cfg
+        )
+
+        body_html = _render_theme_cluster_body(
+            cluster_id=cluster_id,
+            failing_side=side,
+            theme_title=theme_title,
+            tools=tools,
+            regressions=regs,
+            ctrl_run=ctrl,
+            exp_run=exp,
+            report_url=report_url,
+        )
+
+        clusters.append({
+            "cluster_id": cluster_id,
+            "failing_side": side,
+            "failing_run": {
+                "id": str(failing_run["id"]),
+                "name": failing_run["name"],
+                "run_date": failing_run["run_date"],
+                "url": seval_run_url(str(failing_run["id"])),
+            },
+            "passed_run": {
+                "id": str(passed_run["id"]),
+                "name": passed_run["name"],
+                "run_date": passed_run["run_date"],
+                "url": seval_run_url(str(passed_run["id"])),
+            },
+            "theme": theme,
+            "theme_title": theme_title,
+            "tools": tools,
+            "split_by_tool": split_by_tool,
+            # Compatibility fields so _format_plan / execute work unchanged.
+            "topic_num": "-",
+            "topic": theme_title,
+            "category": category or "(all tools)",
+            "sub_modes": [],
+            "priority": priority,
+            "n_regressions": n,
+            "n_critical": n_crit,
+            "n_expected": n_exp,
+            "regression_ids": [r["id"] for r in regs],
+            "queries": sorted({r["query"] for r in regs}),
+            "report_url": report_url,
+            "decision": {
+                "action": "create",
+                "new_title": default_title,
+                "assignee": assignee,
+                "assignee_name": assignee_name,
+                "assignee_rule": rule_label,
+                "notes": "",
+            },
+            "body_html": body_html,
+        })
+
+    proposals = {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "manifest_path": os.path.relpath(args.manifest),
+        "classifications_path": None,
+        "cluster_mode": "theme",
+        "split_by_tool": split_by_tool,
+        "report_url": report_url,
+        "ado": {
+            "org": ADO_ORG,
+            "project": ADO_PROJECT_ENC.replace("%20", " "),
+            "area_path": args.area_path,
+            "iteration": args.iteration,
+            "work_item_type": args.work_item_type,
+            "tags": list(SEVAL_TAGS),
+        },
+        "control": {
+            "id": str(ctrl["id"]),
+            "name": ctrl["name"],
+            "run_date": ctrl["run_date"],
+            "url": seval_run_url(str(ctrl["id"])),
+        },
+        "experiment": {
+            "id": str(exp["id"]),
+            "name": exp["name"],
+            "run_date": exp["run_date"],
+            "url": seval_run_url(str(exp["id"])),
+        },
+        "summary": {
+            "n_clusters": len(clusters),
+            "n_regressions_total": sum(c["n_regressions"] for c in clusters),
+            "by_side": _count_by(clusters, "failing_side"),
+            "by_priority": _count_by(clusters, "priority"),
+            "unassigned": sum(1 for c in clusters if not c["decision"]["assignee"]),
+        },
+        "clusters": clusters,
+    }
+    _write_json(args.out, proposals)
+    mode = "theme+tool" if split_by_tool else "theme"
+    print(f"[seval-ado] Wrote proposals ({mode}) -> {args.out}")
+    print(f"[seval-ado] {proposals['summary']['n_clusters']} cluster(s) "
+          f"covering {proposals['summary']['n_regressions_total']} regression(s).")
+    if proposals["summary"]["unassigned"]:
+        print(f"[seval-ado] WARNING: {proposals['summary']['unassigned']} "
+              f"cluster(s) unassigned (no owner rule matched).")
+
+
+def _render_theme_cluster_body(*, cluster_id: str, failing_side: str,
+                               theme_title: str, tools: List[str],
+                               regressions: List[Dict[str, Any]],
+                               ctrl_run: Dict[str, Any], exp_run: Dict[str, Any],
+                               report_url: str) -> str:
+    """Render the ADO bug body for a theme cluster (theme + tool framing)."""
+    ctrl_url = seval_run_url(str(ctrl_run["id"]))
+    exp_url = seval_run_url(str(exp_run["id"]))
+    header = (
+        f'<h2>SEVAL Regression &mdash; {esc(failing_side)} side</h2>'
+        f'<p><strong>Failing model:</strong> {esc(failing_side)} '
+        f'(slot {"0 / control" if failing_side == ctrl_run["name"] else "1 / experiment"})</p>'
+        f'<p><strong>Base SEVAL:</strong> '
+        f'<a href="{esc(ctrl_url)}">#{esc(str(ctrl_run["id"]))}</a> '
+        f'({esc(ctrl_run["run_date"])})<br/>'
+        f'<strong>Latest SEVAL:</strong> '
+        f'<a href="{esc(exp_url)}">#{esc(str(exp_run["id"]))}</a> '
+        f'({esc(exp_run["run_date"])})</p>'
+        f'<p><strong>Theme:</strong> {esc(theme_title)}<br/>'
+        f'<strong>Tool / surface:</strong> {esc(", ".join(tools))}<br/>'
+        f'<strong>Cluster:</strong> {len(regressions)} assertion(s) '
+        f'(<code>{esc(cluster_id)}</code>)</p>'
+        f'<hr/>'
+    )
+
+    blocks: List[str] = []
+    to_show = regressions[:MAX_ASSERTIONS_INLINE]
+    for i, r in enumerate(to_show, start=1):
+        tool_html = (
+            f'<p><em>Tool:</em> {esc(r.get("tool", ""))}</p>'
+            if r.get("tool") else ""
+        )
+        blocks.append(
+            f'<h3>Assertion {i} of {len(regressions)} '
+            f'(level: {esc(r["level"])}, id: <code>{esc(r["id"])}</code>)</h3>'
+            f'<p><strong>Query:</strong><br/>{esc(r["query"])}</p>'
+            f'<p><strong>Assertion:</strong><br/>{esc(r["assertion"])}</p>'
+            f'<p><strong>Why it failed:</strong><br/>{esc(r["why_failed"])}</p>'
+            f'{tool_html}'
+            f'<details><summary><strong>Failing model reply</strong> '
+            f'(from {esc(failing_side)} @ #{esc(str(exp_run["id"]))})</summary>'
+            f'<pre style="white-space:pre-wrap;font-family:Consolas,monospace;">'
+            f'{esc(_trunc(r["reply_failed"], REPLY_TRUNC_CHARS))}'
+            f'</pre></details>'
+            f'<details><summary><strong>Judge rationale '
+            f'(failure)</strong></summary>'
+            f'<pre style="white-space:pre-wrap;font-family:Consolas,monospace;">'
+            f'{esc(_trunc(r["rationale_failed"], RATIONALE_TRUNC_CHARS))}'
+            f'</pre></details>'
+            f'<hr/>'
+        )
+    if len(regressions) > MAX_ASSERTIONS_INLINE:
+        omitted = len(regressions) - MAX_ASSERTIONS_INLINE
+        blocks.append(
+            f'<p><em>+ {omitted} additional assertion(s) in this cluster; '
+            f'see the full report linked below.</em></p>'
+        )
+
+    footer = (
+        f'<hr/>'
+        f'<p><strong>Full regression report:</strong> '
+        f'<a href="{esc(report_url)}">{esc(report_url)}</a></p>'
+        f'<p style="color:#888;font-size:11px;">Filed by '
+        f'<code>seval-regression-ticket-sync</code> on '
+        f'{datetime.now().strftime("%Y-%m-%d")}.</p>'
+    )
+    return header + "".join(blocks) + footer
+
+
+# ---------------------------------------------------------------------------
 # Body HTML rendering
 # ---------------------------------------------------------------------------
 
@@ -631,8 +944,12 @@ def _format_plan(clusters: List[Dict[str, Any]],
     for c in clusters:
         marker = "[NEW]" if c["decision"]["action"] == "create" else "[skip]"
         owner = c["decision"].get("assignee_name") or "(unassigned)"
+        if c.get("theme"):
+            grouping = f"{str(c.get('category', ''))[:18]:<18}"
+        else:
+            grouping = f"T{c['topic_num']:>2} {c['category']:<14}"
         out.append(f"  {marker} {c['priority']} {c['failing_side']:>9} "
-                   f"T{c['topic_num']:>2} {c['category']:<14} "
+                   f"{grouping} "
                    f"({c['n_regressions']:>2} reg) "
                    f"-> {owner}")
         out.append(f"        {c['decision']['new_title']}")
@@ -725,13 +1042,28 @@ def main() -> None:
                         help="Cluster classified regressions and emit "
                              "a proposals JSON for review.")
     p2.add_argument("--manifest", required=True)
-    p2.add_argument("--classifications", required=True,
-                    help="Path to the filled classifications JSON.")
+    p2.add_argument("--classifications", default=None,
+                    help="Path to the filled classifications JSON. Required "
+                         "for --cluster-by topic; ignored for --cluster-by theme.")
     p2.add_argument("--report-url", required=True,
                     help="Published HTML report URL (will be linked in "
                          "every bug body).")
     p2.add_argument("--out", required=True,
                     help="Output path for the proposals JSON.")
+    p2.add_argument("--cluster-by", choices=["topic", "theme"], default=None,
+                    help="How to group regressions into ADO bugs. 'topic' "
+                         "(default) uses the OCV 13-topic taxonomy and needs "
+                         "--classifications. 'theme' uses the report's theme + "
+                         "tool fields (no classification step). If omitted, "
+                         "falls back to the selection file's options.cluster_by, "
+                         "else 'topic'.")
+    p2.add_argument("--split-by-tool", default=None,
+                    action=argparse.BooleanOptionalAction,
+                    help="In --cluster-by theme mode, split each theme cluster "
+                         "by the failing tool/surface so titles read "
+                         "'[tool] <theme>' (for owner routing). Default: take "
+                         "from the selection file's options.split_by_tool, "
+                         "else on.")
     p2.add_argument("--selection", default=None,
                     help="Optional path to an ADO-selection JSON exported "
                          "from the rendered HTML report. Regressions marked "

@@ -18,7 +18,7 @@ Modes:
 Usage:
   python scripts/eval_regression_render.py \
       --manifest data/eval-manifests/<date>_<cid>_vs_<eid>_manifest.json \
-      --out      output/eval-regression_<date>_<cid>_vs_<eid>.html
+      --out      output/seval/regression/eval-regression_<date>_<cid>_vs_<eid>.html
 
 The script is deterministic. It never invents prose. All text comes from
 the manifest or is fixed UI chrome.
@@ -44,6 +44,19 @@ for _stream in (sys.stdout, sys.stderr):
             _stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
     except Exception:
         pass
+
+
+# Monorepo root (OLAgentWork/) = <repo>/seval-analysis/scripts/ -> parents[2].
+# Relative output paths are resolved against this so reports always land in
+# OLAgentWork/output/... regardless of the current working directory.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def resolve_output(path: Path) -> Path:
+    """Resolve a relative output path against the monorepo root so generated
+    files land under OLAgentWork/output/ no matter where the script is run
+    from. Absolute paths are returned unchanged."""
+    return path if path.is_absolute() else (REPO_ROOT / path)
 
 
 # ---------------------------------------------------------------------------
@@ -431,6 +444,93 @@ details.flag-browse > summary:hover { background: var(--surface-3); }
   font-weight: 600;
 }
 .btn-action.btn-primary:hover { background: rgba(168, 199, 250, 0.22); }
+.sort-select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--outline);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+}
+.sort-select:focus { outline: 2px solid var(--primary); }
+
+/* ---- Regression themes chart ---- */
+.theme-controls {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  margin: 4px 0 14px;
+}
+.theme-hint { font-size: 12px; color: var(--text-muted); }
+.theme-chart { display: flex; flex-direction: column; gap: 8px; }
+.theme-row {
+  display: grid;
+  grid-template-columns: 130px 1fr auto;
+  gap: 10px; align-items: center;
+}
+.theme-bar-btn {
+  display: grid;
+  grid-template-columns: 1fr; gap: 4px;
+  text-align: left; cursor: pointer;
+  background: var(--surface-1);
+  border: 1px solid var(--outline);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: var(--text);
+  width: 100%;
+}
+.theme-bar-btn:hover { background: var(--surface-2); }
+.theme-row.theme-active .theme-bar-btn { outline: 2px solid var(--primary); background: var(--surface-2); }
+.theme-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.theme-label { font-size: 13px; font-weight: 600; }
+.theme-count { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.theme-crit { color: var(--error); }
+.theme-track { height: 8px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.theme-fill { display: block; height: 100%; border-radius: 999px; background: var(--primary); }
+.theme-desc { font-size: 11px; color: var(--text-faint); }
+.theme-ado {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 6px; font-size: 11px;
+  color: var(--text-faint); background: var(--surface-2);
+  border: 1px solid var(--outline); cursor: pointer; user-select: none;
+  white-space: nowrap; justify-self: start;
+}
+.theme-ado.is-on { color: var(--tertiary); border-color: var(--tertiary); background: var(--tertiary-container); }
+.theme-ado-count { font-variant-numeric: tabular-nums; opacity: 0.85; }
+.theme-example {
+  font-size: 11px; color: var(--primary); background: transparent;
+  border: 1px dashed var(--outline); border-radius: 6px; padding: 4px 8px;
+  cursor: pointer; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.theme-example:hover { background: var(--surface-2); border-style: solid; }
+.assertion.row-flash { outline: 2px solid var(--primary); outline-offset: 2px; transition: outline-color 0.2s; }
+@media (max-width: 720px) {
+  .theme-row { grid-template-columns: 1fr; }
+}
+
+/* ---- Tool sub-category (owner routing) ---- */
+.tool-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-muted); cursor: pointer; user-select: none;
+}
+.tool-toggle input { cursor: pointer; }
+.tool-chips { display: none; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+body.tools-on .tool-chips { display: flex; }
+.tool-chip {
+  font-size: 10px; font-variant-numeric: tabular-nums;
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--surface-3); color: var(--text-muted);
+  border: 1px solid var(--outline); white-space: nowrap;
+}
+.tool-chip .tool-chip-crit { color: var(--error); }
+.tool-badge {
+  display: none;
+  font-size: 10px; font-weight: 600; letter-spacing: .02em;
+  padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+  background: var(--tertiary-container); color: var(--tertiary);
+  border: 1px solid var(--tertiary);
+}
+body.tools-on .tool-badge { display: inline-block; }
 
 .controls-group {
   display: flex;
@@ -634,6 +734,12 @@ details.rationale[open] > summary::before { content: "▾ "; }
 </section>
 
 <section class="section">
+  <h2>Regression themes</h2>
+  <p class="section-sub">{{THEME_SUBTITLE}}</p>
+  {{THEME_CHART_HTML}}
+</section>
+
+<section class="section">
   <h2>Regressions</h2>
   <p class="section-sub">{{REGRESSION_DENOMINATOR}}</p>
   <div class="controls">
@@ -643,6 +749,11 @@ details.rationale[open] > summary::before { content: "▾ "; }
     <button class="filter-pill pill-ee" data-filter="experiment_vs_experiment">{{EXPERIMENT_NAME}} vs {{EXPERIMENT_NAME}} ({{EE_COUNT}})</button>
     <button class="btn-action" id="expand-all">Expand all</button>
     <button class="btn-action" id="collapse-all">Collapse all</button>
+    <select class="sort-select" id="sort-mode" title="Sort the regressions list by assertion level (rows stay grouped by query)">
+      <option value="default">Sort: grouped by query</option>
+      <option value="critical">Sort: level — critical first</option>
+      <option value="aspirational">Sort: level — aspirational first</option>
+    </select>
     <div class="controls-group controls-ado" title="Mark which assertions to include when filing ADO bugs. Selection is stored in your browser per report slug; download the JSON when you're done and feed it to seval_regression_ado_sync.py --selection.">
       <span class="selection-counter" id="ado-counter"><span class="sel-on" id="ado-on">{{TOTAL_REG}}</span> / {{TOTAL_REG}} for ADO</span>
       <button class="btn-action" id="ado-select-visible" title="Mark all currently-visible rows as Include">Select visible</button>
@@ -685,6 +796,7 @@ details.rationale[open] > summary::before { content: "▾ "; }
   const queriesRoot = document.getElementById('queries');
   const noResults = document.getElementById('no-results');
   let activeFilter = 'all';
+  let activeTheme = null;   // null = all themes; otherwise a theme key.
 
   function applyFilter() {
     const q = (search.value || '').toLowerCase().trim();
@@ -695,9 +807,10 @@ details.rationale[open] > summary::before { content: "▾ "; }
       qNode.querySelectorAll('.assertion').forEach(aNode => {
         const cmp = aNode.getAttribute('data-comparison');
         const filterOk = (activeFilter === 'all' || cmp === activeFilter);
+        const themeOk = (!activeTheme || aNode.getAttribute('data-theme') === activeTheme);
         const text = (queryText + ' ' + aNode.textContent.toLowerCase());
         const searchOk = !q || text.includes(q);
-        const visible = filterOk && searchOk;
+        const visible = filterOk && themeOk && searchOk;
         aNode.style.display = visible ? '' : 'none';
         if (visible) anyAssertionVisible = true;
       });
@@ -720,6 +833,79 @@ details.rationale[open] > summary::before { content: "▾ "; }
   document.getElementById('collapse-all').addEventListener('click', () =>
     queriesRoot.querySelectorAll('details.query').forEach(d => d.open = false));
 
+  // Sort-by-level wiring. Rows stay grouped by query; the sort reorders the
+  // assertion rows within each query group by level severity and reorders the
+  // query groups themselves by their most-severe (critical) or least-severe
+  // (aspirational) row. "default" restores the original manifest order, which
+  // is stamped onto each node at load via data-orig.
+  const LEVEL_RANK = { critical: 0, expected: 1, aspirational: 2 };
+  function levelRank(node) {
+    const l = (node.getAttribute('data-level') || '').toLowerCase();
+    return (l in LEVEL_RANK) ? LEVEL_RANK[l] : 99;
+  }
+  Array.from(queriesRoot.querySelectorAll('details.query')).forEach((q, qi) => {
+    q.dataset.orig = qi;
+    Array.from(q.querySelectorAll('.assertion')).forEach((a, ai) => { a.dataset.orig = ai; });
+  });
+  const sortSelect = document.getElementById('sort-mode');
+  function applySort(mode) {
+    const queryNodes = Array.from(queriesRoot.querySelectorAll('details.query'));
+    queryNodes.forEach(q => {
+      const body = q.querySelector('.query-body');
+      const rows = Array.from(q.querySelectorAll('.assertion'));
+      rows.sort((a, b) => {
+        if (mode === 'default') return (+a.dataset.orig) - (+b.dataset.orig);
+        const d = (mode === 'aspirational') ? (levelRank(b) - levelRank(a)) : (levelRank(a) - levelRank(b));
+        return d !== 0 ? d : (+a.dataset.orig) - (+b.dataset.orig);
+      });
+      rows.forEach(r => body.appendChild(r));
+    });
+    queryNodes.sort((a, b) => {
+      if (mode === 'default') return (+a.dataset.orig) - (+b.dataset.orig);
+      const ranks = n => Array.from(n.querySelectorAll('.assertion')).map(levelRank);
+      const key = arr => (mode === 'aspirational') ? Math.max.apply(null, arr) : Math.min.apply(null, arr);
+      const d = (mode === 'aspirational') ? (key(ranks(b)) - key(ranks(a))) : (key(ranks(a)) - key(ranks(b)));
+      return d !== 0 ? d : (+a.dataset.orig) - (+b.dataset.orig);
+    });
+    queryNodes.forEach(q => queriesRoot.appendChild(q));
+  }
+  sortSelect && sortSelect.addEventListener('change', () => applySort(sortSelect.value));
+
+  // Theme chart wiring. Clicking a theme bar filters the regressions list to
+  // that theme; clicking the active theme again (or "Clear theme filter")
+  // resets it. Example buttons expand the containing query group, scroll the
+  // row into view, and briefly highlight it.
+  const themeBars = Array.from(document.querySelectorAll('.theme-bar-btn'));
+  const themeRows = Array.from(document.querySelectorAll('.theme-row'));
+  function setActiveTheme(theme) {
+    activeTheme = theme;
+    themeRows.forEach(r => r.classList.toggle('theme-active', !!theme && r.getAttribute('data-theme') === theme));
+    applyFilter();
+  }
+  themeBars.forEach(bar => bar.addEventListener('click', () => {
+    const theme = bar.getAttribute('data-theme');
+    setActiveTheme(activeTheme === theme ? null : theme);
+    if (activeTheme) {
+      const regSection = document.getElementById('search');
+      if (regSection) regSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }));
+  const themeClear = document.getElementById('theme-clear');
+  themeClear && themeClear.addEventListener('click', () => setActiveTheme(null));
+
+  document.querySelectorAll('.theme-example').forEach(btn => btn.addEventListener('click', () => {
+    const targetId = btn.getAttribute('data-target');
+    const row = targetId && document.getElementById(targetId);
+    if (!row) return;
+    const qNode = row.closest('details.query');
+    if (qNode) qNode.open = true;
+    // Make sure the row is not hidden by an active theme/filter.
+    setActiveTheme(null);
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.add('row-flash');
+    setTimeout(() => row.classList.remove('row-flash'), 1600);
+  }));
+
   // Flag-browse filter — per-card. Each `details.flag-browse` has its own
   // search input and body, scoped by data-scope so multiple cards on the
   // page filter independently.
@@ -738,7 +924,9 @@ details.rationale[open] > summary::before { content: "▾ "; }
 
   // ADO selection — per-row checkboxes, persisted to localStorage, exported
   // as JSON for `seval_regression_ado_sync.py --selection <file>`. Default
-  // is everything-included; users uncheck rows they don't want filed.
+  // (first load, no saved state) is critical-level only: critical rows are
+  // pre-checked, every other level is unchecked. Users can toggle any row;
+  // their saved selection then takes precedence on later visits.
   (function adoSelection() {
     const slugMeta = document.querySelector('meta[name="seval:manifest-slug"]');
     const slug = slugMeta ? slugMeta.getAttribute('content') : 'unknown';
@@ -748,19 +936,52 @@ details.rationale[open] > summary::before { content: "▾ "; }
     const downloadBtn = document.getElementById('ado-download');
     const selectVisibleBtn = document.getElementById('ado-select-visible');
     const clearVisibleBtn = document.getElementById('ado-clear-visible');
+    const themeBoxes = Array.from(document.querySelectorAll('input.theme-include-box'));
     if (!boxes.length || !counterOn || !downloadBtn) return;
+
+    // "Sub-category by tool" toggle. When on, the body gets `tools-on` (which
+    // reveals tool chips + per-row tool badges) and the exported selection asks
+    // the sync to split each theme cluster by tool -> "[tool] theme" tickets.
+    // When off, the sync files one ticket per theme (maximum grouping).
+    const toolToggle = document.getElementById('tool-split-toggle');
+    let splitByTool = true;
+    const splitStorageKey = 'sevalSplitByTool:' + slug;
+    try {
+      const s = localStorage.getItem(splitStorageKey);
+      if (s !== null) splitByTool = (s === '1');
+    } catch (e) {}
+    function applyToolMode() {
+      document.body.classList.toggle('tools-on', splitByTool);
+      if (toolToggle) toolToggle.checked = splitByTool;
+    }
+    applyToolMode();
+    toolToggle && toolToggle.addEventListener('change', () => {
+      splitByTool = !!toolToggle.checked;
+      try { localStorage.setItem(splitStorageKey, splitByTool ? '1' : '0'); } catch (e) {}
+      applyToolMode();
+    });
 
     // Load saved state. Schema: { "<id>": true } means excluded; missing keys
     // default to included. We only persist excludes so re-rendering with new
-    // rows defaults them to included.
+    // rows defaults them to the level-based default below.
     let excludes = {};
+    let hadSaved = false;
     try {
       const raw = localStorage.getItem(storageKey);
-      if (raw) excludes = JSON.parse(raw) || {};
-    } catch (e) { excludes = {}; }
+      if (raw) { excludes = JSON.parse(raw) || {}; hadSaved = true; }
+    } catch (e) { excludes = {}; hadSaved = false; }
     // Back-compat: an earlier build stored `false` to mean excluded. Normalize
     // any falsy entries to `true` so the toggle logic below works.
     Object.keys(excludes).forEach(k => { excludes[k] = true; });
+    // First load (no saved selection): default to critical-only. Seed every
+    // non-critical row into the exclude set so only critical assertions are
+    // pre-checked for ADO. Once the user edits, their saved state wins.
+    if (!hadSaved) {
+      boxes.forEach(b => {
+        const lvl = (b.getAttribute('data-level') || '').toLowerCase();
+        if (lvl !== 'critical') excludes[b.getAttribute('data-id')] = true;
+      });
+    }
 
     function applyToBox(box) {
       const id = box.getAttribute('data-id');
@@ -787,9 +1008,46 @@ details.rationale[open] > summary::before { content: "▾ "; }
         applyToBox(box);
         updateCounter();
         persist();
+        refreshThemeBoxes();
       });
     });
     updateCounter();
+
+    // Theme-level ADO checkboxes — bulk include/exclude every row of a theme,
+    // and reflect aggregate state (checked = all rows in, indeterminate = some).
+    // This is the "file ADO by topic" path; per-row boxes remain the "by query"
+    // path. Both edit the same underlying selection.
+    function rowsForTheme(theme) {
+      return boxes.filter(b => (b.getAttribute('data-theme') || '') === theme);
+    }
+    function refreshThemeBoxes() {
+      themeBoxes.forEach(tb => {
+        const theme = tb.getAttribute('data-theme');
+        const rs = rowsForTheme(theme);
+        const on = rs.reduce((n, b) => n + (b.checked ? 1 : 0), 0);
+        tb.checked = rs.length > 0 && on === rs.length;
+        tb.indeterminate = on > 0 && on < rs.length;
+        const lbl = tb.closest('.theme-ado');
+        if (lbl) lbl.classList.toggle('is-on', on > 0);
+        const cnt = lbl && lbl.querySelector('.theme-ado-count');
+        if (cnt) cnt.textContent = on + '/' + rs.length;
+      });
+    }
+    themeBoxes.forEach(tb => {
+      tb.addEventListener('change', () => {
+        const theme = tb.getAttribute('data-theme');
+        const wantOn = tb.checked;   // checkbox value after the click
+        rowsForTheme(theme).forEach(b => {
+          const id = b.getAttribute('data-id');
+          if (wantOn) delete excludes[id]; else excludes[id] = true;
+          applyToBox(b);
+        });
+        updateCounter();
+        persist();
+        refreshThemeBoxes();
+      });
+    });
+    refreshThemeBoxes();
 
     function visibleBoxes() {
       return boxes.filter(b => {
@@ -806,7 +1064,7 @@ details.rationale[open] > summary::before { content: "▾ "; }
         delete excludes[id];
         applyToBox(b);
       });
-      updateCounter(); persist();
+      updateCounter(); persist(); refreshThemeBoxes();
     });
     clearVisibleBtn && clearVisibleBtn.addEventListener('click', () => {
       visibleBoxes().forEach(b => {
@@ -814,7 +1072,7 @@ details.rationale[open] > summary::before { content: "▾ "; }
         excludes[id] = true;
         applyToBox(b);
       });
-      updateCounter(); persist();
+      updateCounter(); persist(); refreshThemeBoxes();
     });
 
     downloadBtn.addEventListener('click', () => {
@@ -822,9 +1080,15 @@ details.rationale[open] > summary::before { content: "▾ "; }
         manifest_slug: slug,
         exported_at: new Date().toISOString(),
         format: 'seval-ado-selection/v1',
-        notes: 'Pass to seval_regression_ado_sync.py via --selection <file>. Rows with include=false are dropped before clustering.',
+        notes: 'Pass to seval_regression_ado_sync.py via --selection <file>. Rows with include=false are dropped. With --cluster-by theme the sync groups included rows by theme; options.split_by_tool controls whether each theme is further split by tool -> "[tool] theme" tickets.',
+        options: {
+          cluster_by: 'theme',
+          split_by_tool: splitByTool
+        },
         selections: boxes.map(b => ({
           id: b.getAttribute('data-id'),
+          theme: b.getAttribute('data-theme') || null,
+          tool: b.getAttribute('data-tool') || null,
           include: b.checked
         }))
       };
@@ -1092,6 +1356,110 @@ def render_flag_diffs_section(fd: Dict[str, Any],
     return "\n".join(parts)
 
 
+def render_theme_section(manifest: Dict[str, Any]) -> str:
+    """Render the clickable theme chart shown before the Regressions list.
+
+    Each theme is a horizontal bar (count-scaled) that filters the list when
+    clicked, plus a theme-level "ADO" checkbox that bulk-toggles every row of
+    that theme in the selection, and an example button that jumps to a
+    representative regression row.
+    """
+    themes = manifest.get("themes") or []
+    regs = manifest.get("regressions", [])
+    if not themes:
+        return '<div class="no-results">No theme classification available.</div>'
+
+    id_to_query = {r["id"]: r.get("query", "") for r in regs}
+    max_count = max((int(t.get("count", 0)) for t in themes), default=0) or 1
+
+    # Tool sub-category breakdown per theme (for owner routing). Each theme bar
+    # shows small "<tool>·<n>" chips that reveal which surfaces drive it.
+    tool_labels = {str(t.get("key", "")): str(t.get("label", t.get("key", "")))
+                   for t in (manifest.get("tools") or [])}
+    theme_tool_counts: Dict[str, Dict[str, Dict[str, int]]] = {}
+    for r in regs:
+        tk = (r.get("theme") or "").strip()
+        tl = (r.get("tool") or "").strip()
+        if not tk or not tl:
+            continue
+        bucket = theme_tool_counts.setdefault(tk, {})
+        cell = bucket.setdefault(tl, {"count": 0, "crit": 0})
+        cell["count"] += 1
+        if (r.get("level", "") or "").lower() == "critical":
+            cell["crit"] += 1
+
+    rows_html: List[str] = []
+    for t in themes:
+        key = str(t.get("key", ""))
+        label = str(t.get("label", key))
+        desc = str(t.get("description", ""))
+        count = int(t.get("count", 0))
+        crit = int(t.get("critical_count", 0))
+        pct = max(2, round(100 * count / max_count)) if count else 0
+
+        crit_html = f'<span class="theme-crit"> · {crit} critical</span>' if crit else ""
+
+        # Tool chips (hidden unless the "Sub-category by tool" toggle is on).
+        chips = []
+        for tl, cell in sorted(theme_tool_counts.get(key, {}).items(),
+                               key=lambda kv: (-kv[1]["count"], kv[0])):
+            crit_chip = (f'<span class="tool-chip-crit"> ({cell["crit"]} crit)</span>'
+                         if cell["crit"] else "")
+            chips.append(
+                f'<span class="tool-chip" title="{html.escape(tool_labels.get(tl, tl))}">'
+                f'{html.escape(tl)}·{cell["count"]}{crit_chip}</span>'
+            )
+        chips_html = (f'<span class="tool-chips">{"".join(chips)}</span>'
+                      if chips else "")
+
+        example_html = ""
+        ex_ids = t.get("example_ids") or []
+        if ex_ids:
+            ex_id = str(ex_ids[0])
+            ex_q = id_to_query.get(ex_id, "")
+            ex_label = (ex_q[:58] + "…") if len(ex_q) > 58 else (ex_q or "example")
+            example_html = (
+                f'<button type="button" class="theme-example" data-target="row-{html.escape(ex_id)}" '
+                f'title="Jump to an example: {html.escape(ex_q)}">e.g. {html.escape(ex_label)}</button>'
+            )
+
+        rows_html.append(
+            f'<div class="theme-row" data-theme="{html.escape(key)}">'
+            f'  <label class="theme-ado" title="Include every &quot;{html.escape(label)}&quot; regression when filing ADO bugs.">'
+            f'    <input type="checkbox" class="theme-include-box" data-theme="{html.escape(key)}">'
+            f'    <span class="theme-ado-text">ADO</span> <span class="theme-ado-count"></span>'
+            f'  </label>'
+            f'  <button type="button" class="theme-bar-btn" data-theme="{html.escape(key)}" '
+            f'title="Filter the regressions list to this theme">'
+            f'    <span class="theme-meta">'
+            f'      <span class="theme-label">{html.escape(label)}</span>'
+            f'      <span class="theme-count">{count}{crit_html}</span>'
+            f'    </span>'
+            f'    <span class="theme-track"><span class="theme-fill" style="width:{pct}%"></span></span>'
+            f'    <span class="theme-desc">{html.escape(desc)}</span>'
+            f'    {chips_html}'
+            f'  </button>'
+            f'  {example_html}'
+            f'</div>'
+        )
+
+    controls = (
+        '<div class="theme-controls">'
+        '<span class="theme-hint">Click a theme to filter the regressions below. '
+        'Use a theme\u2019s ADO box to bulk-include the whole theme for ticketing '
+        '(file ADO bugs by query or by theme).</span>'
+        '<label class="tool-toggle" title="When on, each ADO ticket is split by the '
+        'failing tool/surface (e.g. &quot;[calendar] Source grounding missing&quot;) so '
+        'tickets route to the right owner. When off, you get one ticket per theme '
+        '(maximum grouping).">'
+        '<input type="checkbox" id="tool-split-toggle" checked> '
+        'Sub-category by tool (one ticket per tool within a theme)</label>'
+        '<button class="btn-action" id="theme-clear">Clear theme filter</button>'
+        '</div>'
+    )
+    return controls + '<div class="theme-chart">' + "\n".join(rows_html) + '</div>'
+
+
 def render_query_blocks(regressions: List[Dict[str, Any]], ctrl_name: str, exp_name: str) -> str:
     if not regressions:
         return '<div class="no-results">No regressions to display.</div>'
@@ -1134,6 +1502,12 @@ def render_assertion(r: Dict[str, Any], ctrl_name: str, exp_name: str) -> str:
     )
     cmp_badge_cls = "badge-cc" if cmp == "control_vs_control" else "badge-ee"
     level = r.get("level", "")
+    level_norm = (level or "").strip().lower()
+    theme = (r.get("theme") or "").strip()
+    tool = (r.get("tool") or "").strip()
+    is_critical = level_norm == "critical"
+    checked_attr = " checked" if is_critical else ""
+    label_on_cls = " is-on" if is_critical else ""
     segment = r.get("segment", "")
     meta_bits = []
     if level: meta_bits.append(html.escape(level))
@@ -1174,13 +1548,19 @@ def render_assertion(r: Dict[str, Any], ctrl_name: str, exp_name: str) -> str:
     reply_passed = r.get("reply_passed", "")
     reply_failed = r.get("reply_failed", "")
 
+    tool_badge_html = (
+        f'<span class="tool-badge" title="Owner surface / tool sub-category">{html.escape(tool)}</span>'
+        if tool else ""
+    )
+
     return (
-        f'<div class="assertion" data-comparison="{html.escape(cmp)}" data-id="{html.escape(r["id"])}">'
+        f'<div class="assertion" id="row-{html.escape(r["id"])}" data-comparison="{html.escape(cmp)}" data-level="{html.escape(level_norm)}" data-theme="{html.escape(theme)}" data-tool="{html.escape(tool)}" data-id="{html.escape(r["id"])}">'
         f'  <div class="assertion-header">'
         f'    <div class="assertion-text">{html.escape(r["assertion"])}{meta_html}</div>'
+        f'    {tool_badge_html}'
         f'    <span class="badge {cmp_badge_cls}">{html.escape(cmp_label)}</span>'
-        f'    <label class="assertion-select is-on" title="Include this assertion when filing ADO bugs (via seval_regression_ado_sync.py --selection).">'
-        f'      <input type="checkbox" class="row-include" data-id="{html.escape(r["id"])}" checked> Include in ADO'
+        f'    <label class="assertion-select{label_on_cls}" title="Include this assertion when filing ADO bugs (via seval_regression_ado_sync.py --selection). Only critical-level rows are checked by default.">'
+        f'      <input type="checkbox" class="row-include" data-id="{html.escape(r["id"])}" data-level="{html.escape(level_norm)}" data-theme="{html.escape(theme)}" data-tool="{html.escape(tool)}"{checked_attr}> Include in ADO'
         f'    </label>'
         f'  </div>'
         f'  <div class="grid">'
@@ -1248,6 +1628,16 @@ def render(manifest: Dict[str, Any], manifest_path: Path) -> str:
 
     queries_html = render_query_blocks(manifest.get("regressions", []), ctrl["name"], exp["name"])
 
+    themes = manifest.get("themes") or []
+    theme_chart_html = render_theme_section(manifest)
+    n_themes = len(themes)
+    theme_subtitle = (
+        f"{total_reg} regressions grouped into {n_themes} recurring failure themes "
+        f"(each links to at least one example). Counts and critical counts are shown per theme; "
+        f"click a theme to filter the list, or use its ADO box to ticket the whole topic."
+        if n_themes else "No theme classification available for this manifest."
+    )
+
     manifest_slug = manifest_path.stem
     if manifest_slug.endswith("_manifest"):
         manifest_slug = manifest_slug[: -len("_manifest")]
@@ -1260,6 +1650,8 @@ def render(manifest: Dict[str, Any], manifest_path: Path) -> str:
         "{{KPI_CARDS}}": render_kpi_cards(manifest),
         "{{FLAG_DESCRIPTION}}": html.escape(flag_desc),
         "{{FLAG_DIFFS_HTML}}": render_flag_diffs_section(fd, ctrl["id"], exp["id"]),
+        "{{THEME_SUBTITLE}}": html.escape(theme_subtitle),
+        "{{THEME_CHART_HTML}}": theme_chart_html,
         "{{CONTROL_NAME}}": html.escape(ctrl["name"]),
         "{{EXPERIMENT_NAME}}": html.escape(exp["name"]),
         "{{REGRESSION_DENOMINATOR}}": html.escape(regression_denominator),
@@ -1310,12 +1702,13 @@ def main() -> int:
 
     html_text = render(manifest, args.manifest)
 
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(html_text, encoding="utf-8")
+    out_path = resolve_output(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(html_text, encoding="utf-8")
 
     n_reg = len(manifest.get("regressions", []))
     blanks = sum(1 for r in manifest.get("regressions", []) if not (r.get("why_failed") or "").strip())
-    print(f"[render] Wrote {args.out} ({args.out.stat().st_size // 1024} KB)")
+    print(f"[render] Wrote {out_path} ({out_path.stat().st_size // 1024} KB)")
     print(f"[render] {n_reg} regressions rendered; {blanks} still have placeholder why_failed.")
     return 0
 
