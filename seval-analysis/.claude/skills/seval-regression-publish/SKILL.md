@@ -47,7 +47,7 @@ Do **not** invoke for:
 ## Prerequisites
 
 1. A built HTML report from `seval-regression-analyze`
-   (e.g. `output/eval-regression_<date>_<cid>_vs_<eid>.html`)
+   (e.g. `output/seval/regression/eval-regression_<date>_<cid>_vs_<eid>.html`)
 2. The matching manifest at
    `data/eval-manifests/<date>_<cid>_vs_<eid>_manifest.json`
 3. **Every `regressions[].why_failed` is non-empty.** The script
@@ -56,13 +56,14 @@ Do **not** invoke for:
    manifest. The agent flips this from `false` → `true` only after
    the user has reviewed the report locally (the orchestrator handles
    this gate).
-5. A local clone of the OCV-Weekly repo at
-   `_ocv_weekly_repo/` (sibling of the `ocv-extraction` working directory).
-   The script auto-clones from `https://github.com/gim-home/OCV-Weekly.git` if
+5. A local clone of the OCV-Weekly repo at the **monorepo root**
+   `OLAgentWork/_ocv_weekly_repo/` (the script anchors this to the repo
+   root regardless of the working directory). The script auto-clones from
+   `https://github.com/gim-home/OCV-Weekly.git` if
    missing. `origin` pushes to `gim-home/OCV-Weekly` only. The
    personal public mirror at `yohncf/OCV-Weekly_temp` is kept in
-   sync by `mirror_to_personal_v2.ps1` in the ocv-extraction repo
-   root — the publish script invokes it automatically as a post-push
+   sync by `mirror_to_personal_v2.ps1` at the **monorepo root**
+   (`OLAgentWork/`) — the publish script invokes it automatically as a post-push
    step (pass `--skip-mirror` to opt out).
 6. Git credentials configured in Windows Credential Manager (one-time;
    already set up via `setup_personal_mirror.ps1`).
@@ -89,7 +90,7 @@ Use `ask_user` with three options:
 ```bash
 python scripts/publish_eval_regression_report.py \
   --manifest data/eval-manifests/<date>_<cid>_vs_<eid>_manifest.json \
-  --html     output/eval-regression_<date>_<cid>_vs_<eid>.html \
+  --html     output/seval/regression/eval-regression_<date>_<cid>_vs_<eid>.html \
   --highlights "<the agreed line>" \
   --dry-run
 ```
@@ -121,7 +122,7 @@ Only if Gate A returned "Yes":
 ```bash
 python scripts/publish_eval_regression_report.py \
   --manifest data/eval-manifests/<date>_<cid>_vs_<eid>_manifest.json \
-  --html     output/eval-regression_<date>_<cid>_vs_<eid>.html \
+  --html     output/seval/regression/eval-regression_<date>_<cid>_vs_<eid>.html \
   --highlights "<the agreed line>" \
   --yes
 ```
@@ -164,6 +165,17 @@ The script:
    template (M3 dark theme, same look as `index.html`) so the listing
    always reflects the current `eval-reports.json`. The file is
    marked at the top with `<!-- EVAL-HTML-GENERATED: do not hand-edit -->`.
+   At the top of the page (above the report cards) it renders a
+   **Performance trend** panel — inline-SVG charts of regressions per
+   run (total / Mainline-side / CodeGen-side) and the CodeGen-side
+   pass-rate change vs base run (pp), plus latest-run stat callouts.
+   Because the panel is built by `render_trend()` from the **full**
+   `reports` list every time `eval.html` is regenerated, **every new
+   published report automatically extends the trend** — no separate
+   step. The panel needs ≥1 run and is fully self-contained (no JS /
+   external chart library). `build_entry()` also records absolute
+   per-slot pass rates and the Mainline-side delta so future charts can
+   plot absolute performance once enough runs accumulate.
 6. **Idempotently injects** a discrete dropdown into
    `_ocv_weekly_repo/index.html`:
    - Looks for marker comments
@@ -206,7 +218,7 @@ has cleared Gate A in chat.
 ### 4. On cancel at any gate
 
 Exit cleanly without touching the repo. The local artifacts in
-`data/` and `output/` are left as-is; the user can re-run later.
+`data/` and `output/seval/regression/` are left as-is; the user can re-run later.
 
 ## Dropdown injection block
 
