@@ -165,7 +165,7 @@ Bad examples (do not write these):
 ```bash
 python scripts/eval_regression_render.py \
   --manifest data/eval-manifests/<date>_<cid>_vs_<eid>_manifest.json \
-  --out      output/eval-regression_<date>_<cid>_vs_<eid>.html
+  --out      output/seval/regression/eval-regression_<date>_<cid>_vs_<eid>.html
 ```
 
 Default mode is **lenient**: rows with empty `why_failed` render with a
@@ -237,7 +237,7 @@ either side can be traced to the flag delta that may have caused it.
 | Artifact | Path | Lifecycle |
 |----------|------|-----------|
 | Manifest JSON | `data/eval-manifests/<date>_<cid>_vs_<eid>_manifest.json` | Permanent. Safe to share (no customer content). |
-| HTML report | `output/eval-regression_<date>_<cid>_vs_<eid>.html` | Renderable artifact. Re-rendered from the manifest at any time. |
+| HTML report | `output/seval/regression/eval-regression_<date>_<cid>_vs_<eid>.html` | Renderable artifact. Re-rendered from the manifest at any time. |
 
 Surface both paths + the headline KPIs (regression counts with
 denominators, pass-rate deltas) to the user when done.

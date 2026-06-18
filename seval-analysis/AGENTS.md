@@ -12,6 +12,7 @@ reuses its ADO sync engine, owners-routing config, and 13-topic taxonomy.
 
 | Skill | What it does |
 |-------|-------------|
+| `seval-fetch-regression-inputs` | Auto-download the two assertions CSVs + two Settings JSONs that `seval-regression-analyze` needs, straight from the SEVAL portal, given a single `regression.json` descriptor listing the two runs. Drives seval.microsoft.com (Playwright + Edge, persistent SSO profile): LM Checklist → Assertion View → download CSV, then JSON config → download JSON; validates every download by file extension and renames by run id. Prints the ready-to-run analyze arg block |
 | `seval-synthesize-queries-from-ocv` | Cluster real user utterances from Dash/OCV CSVs into up to 10 generic eval queries + assertions (YAML), following `docs/EVAL_DOCTRINE.md` |
 | `seval-regression-analyze` | Compare two SEVAL HeroEval runs (control vs experiment CSVs + Settings JSONs), identify per-assertion regressions on both sides, diff experiment-side feature flags, and render a self-contained dark-themed HTML report with collapsible per-query side-by-side replies |
 | `seval-regression-publish` | Publish a rendered SEVAL regression report into the OCV-Weekly GitHub Pages site (`eval-reports/` + auto-managed `eval.html` listing), inject a dropdown into `index.html`, and push (dual-mirror via `origin`). Two-gate confirmation |
@@ -23,6 +24,7 @@ reuses its ADO sync engine, owners-routing config, and 13-topic taxonomy.
 
 | Script | Powers |
 |--------|--------|
+| `scripts/seval_fetch_regression_inputs.py` | `seval-fetch-regression-inputs` (descriptor JSON → 2 CSVs + 2 JSONs via Playwright/Edge) |
 | `scripts/synthesize_eval_queries.py` | `seval-synthesize-queries-from-ocv` |
 | `scripts/eval_regression_extract.py` | `seval-regression-analyze` (compute regressions + flag diff → manifest) |
 | `scripts/eval_regression_render.py` | `seval-regression-analyze` (manifest → HTML) |

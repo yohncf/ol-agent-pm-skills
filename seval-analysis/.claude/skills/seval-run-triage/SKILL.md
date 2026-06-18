@@ -270,8 +270,8 @@ data or sample for manual review.
 ```bash
 python scripts/seval_run_triage_render.py \
   --manifest data/eval-manifests/552330_2026-06-08_fingerprint.json \
-  --out-md   output/seval_triage_552330_2026-06-08.md \
-  --out-html output/seval_triage_552330_2026-06-08.html
+  --out-md   output/seval/triage/seval_triage_552330_2026-06-08.md \
+  --out-html output/seval/triage/seval_triage_552330_2026-06-08.html
 ```
 
 Default mode is **lenient** — rows with empty `failure_label` render as
@@ -305,8 +305,8 @@ Dark theme (M3 dark palette, Google Sans), matching `seval-regression-analyze`.
 | Artifact | Path | Lifecycle |
 |---|---|---|
 | Fingerprint manifest | `data/eval-manifests/<run-id>_<date>_fingerprint.json` | **Permanent.** Diffable. Safe to share (model outputs are not customer content but are embedded). |
-| Markdown summary | `output/seval_triage_<run-id>_<date>.md` | Renderable from manifest at any time. PM-voice. |
-| HTML report | `output/seval_triage_<run-id>_<date>.html` | Renderable from manifest at any time. Dark-themed. |
+| Markdown summary | `output/seval/triage/seval_triage_<run-id>_<date>.md` | Renderable from manifest at any time. PM-voice. |
+| HTML report | `output/seval/triage/seval_triage_<run-id>_<date>.html` | Renderable from manifest at any time. Dark-themed. |
 
 Surface all three paths + the headline KPIs (overall pass rate, critical-level
 pass rate, top failure family per arm) to the user when done.

@@ -37,6 +37,9 @@ shared/configs/*.json
 .browser-profile/
 .browser-profile-ods/
 .browser-profile-dash/
+.browser-profile-seval/
+# any other persistent Edge/Chromium profile
+.browser-profile*/
 
 # Local AI assistant settings
 .claude/settings.local.json
@@ -47,6 +50,9 @@ _ocv_weekly_personal/
 
 # Generated HTML report outputs (regenerated on every run)
 output/
+
+# SEVAL run artifacts downloaded from the SEVAL portal (large; re-downloadable)
+seval-input/
 
 # Local diagnostic logs and one-off scratch files
 gcm-diagnose.log

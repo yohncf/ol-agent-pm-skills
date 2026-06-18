@@ -36,6 +36,17 @@ for _stream in (sys.stdout, sys.stderr):
         pass
 
 
+# Monorepo root (OLAgentWork/) so relative output paths land in
+# OLAgentWork/output/... no matter the current working directory.
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def resolve_output(path: Path) -> Path:
+    """Resolve a relative output path against the monorepo root. Absolute
+    paths are returned unchanged."""
+    return path if path.is_absolute() else (REPO_ROOT / path)
+
+
 LABEL_TO_FAMILY: Dict[str, str] = {
     # Assertion family
     "Presentation nuance": "Assertion",
@@ -1255,14 +1266,16 @@ def main() -> None:
             sys.exit(1)
 
     if args.out_md:
-        args.out_md.parent.mkdir(parents=True, exist_ok=True)
-        args.out_md.write_text(render_markdown(manifest), encoding="utf-8")
-        print(f"[render] Markdown: {args.out_md}")
+        out_md = resolve_output(args.out_md)
+        out_md.parent.mkdir(parents=True, exist_ok=True)
+        out_md.write_text(render_markdown(manifest), encoding="utf-8")
+        print(f"[render] Markdown: {out_md}")
 
     if args.out_html:
-        args.out_html.parent.mkdir(parents=True, exist_ok=True)
-        args.out_html.write_text(render_html(manifest), encoding="utf-8")
-        print(f"[render] HTML: {args.out_html}")
+        out_html = resolve_output(args.out_html)
+        out_html.parent.mkdir(parents=True, exist_ok=True)
+        out_html.write_text(render_html(manifest), encoding="utf-8")
+        print(f"[render] HTML: {out_html}")
 
 
 if __name__ == "__main__":

@@ -47,9 +47,9 @@ skill. It does not classify or summarize. It only renders what
 | `--subtopics <path>` | Recommended | `data/ocv_<area>_<YYYY-MM-DD>_subtopics.csv` — populates the P0/P1/P2 ticket queue. Auto-discovered as a sibling file if omitted. If the CSV contains an `ADO URL` column (populated by the `ocv-ticket-sync` skill), each ticket card renders an `ADO ↗` button linking to the work item. |
 | `--prior-manifest <path>` | Optional | Earlier-week manifest for the same area. Auto-discovered via `wow_basis` field, then via filename pattern in `data/manifests/`. If absent, the WoW section renders a note explaining how to enable it. |
 | `--report-md <path>` | Optional | The TL;DR + Key Findings markdown report (if `ocv-analyze-and-ticket` emits one). If absent, the script synthesizes a brief TL;DR from manifest aggregates and omits the Key Findings card grid. |
-| `--out <path>` | Optional | Output path. Default: `output/ocv_<area>_<week>.html`. |
+| `--out <path>` | Optional | Output path. Default: `output/ocv/reports/ocv_<area>_<week>.html`. |
 | `--no-open` | Optional | Skip the auto-launch in the default browser. |
-| `--demo` | Optional | Render with synthetic data; ignores `--manifest`. Used to regenerate `output/ocv_weekly_dashboard_sample.html`. |
+| `--demo` | Optional | Render with synthetic data; ignores `--manifest`. Used to regenerate `output/ocv/reports/ocv_weekly_dashboard_sample.html`. |
 | `--area-label <text>` | Optional | Friendly display label (default: title-cased area slug). |
 
 ## Prerequisites
@@ -78,7 +78,8 @@ node scripts/extract_standalone.js --config configs/outlook-agent.json \
 
 # 3. Render the HTML report
 python scripts/publish_ocv_report.py \
-  --manifest data/manifests/ocv_outlook-agent_2026-05-18_manifest.json
+  --manifest data/manifests/ocv_outlook-agent_2026-05-18_manifest.json \
+  --out output/ocv/reports/ocv_outlook-agent_2026-05-18.html
 ```
 
 The script auto-discovers the prior manifest and the sibling subtopics CSV,
@@ -88,7 +89,7 @@ To regenerate the sample dashboard (useful when iterating on the template):
 
 ```bash
 python scripts/publish_ocv_report.py --demo \
-  --out output/ocv_weekly_dashboard_sample.html
+  --out output/ocv/reports/ocv_weekly_dashboard_sample.html
 ```
 
 ## Output
@@ -109,7 +110,7 @@ The HTML can be:
 - **Opened directly** (the script does this by default, opening it in the system's default browser)
 - **Pasted as a link in Loop / Teams / email** by hosting on SharePoint or a
   share drive (file is self-contained — drop and link)
-- **Archived per-week** in the `output/` folder for historical lookback
+- **Archived per-week** in the `output/ocv/reports/` folder for historical lookback
 
 ## Compliance & data handling
 

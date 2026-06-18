@@ -12,7 +12,7 @@ Usage:
 
   python scripts/publish_to_github.py \\
       --manifest data/manifests/ocv_outlook-agent_2026-05-18_manifest.json \\
-      --html     output/ocv_outlook-agent_2026-05-18.html \\
+      --html     output/ocv/reports/ocv_outlook-agent_2026-05-18.html \\
       --highlights "Drafting & Scheduling dominate; 1 new Dash<->OCV join surfaced."
 
 If --manifest is provided, week/range/negatives/topics are auto-derived.

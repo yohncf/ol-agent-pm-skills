@@ -10,7 +10,7 @@ Usage:
         [--subtopics data/ocv_outlook-agent_2026-05-18_subtopics.csv] \
         [--prior-manifest data/manifests/ocv_outlook-agent_2026-05-11_manifest.json] \
         [--report-md data/reports/ocv_outlook-agent_2026-05-18_report.md] \
-        [--out output/ocv_outlook-agent_2026-05-18.html] \
+        [--out output/ocv/reports/ocv_outlook-agent_2026-05-18.html] \
         [--no-open]
 
 If --subtopics is omitted, the script looks for a sibling CSV at
@@ -2107,7 +2107,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--subtopics", type=Path, help="Path to subtopics CSV (optional)")
     parser.add_argument("--prior-manifest", type=Path, help="Path to prior-week manifest JSON (optional; auto-detected)")
     parser.add_argument("--report-md", type=Path, help="Path to analyze-and-ticket report MD (optional)")
-    parser.add_argument("--out", type=Path, help="Output HTML path (default: output/ocv_<area>_<week>.html)")
+    parser.add_argument("--out", type=Path, help="Output HTML path (default: output/ocv/reports/ocv_<area>_<week>.html)")
     parser.add_argument("--no-open", action="store_true", help="Do not open in browser")
     parser.add_argument("--demo", action="store_true", help="Render with synthetic demo data; ignores --manifest")
     parser.add_argument("--area-label", default=None, help="Display label for area (default derived from filename)")
@@ -2181,7 +2181,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.out:
         out_path = args.out
     else:
-        out_dir = Path.cwd() / "output"
+        out_dir = Path.cwd() / "output" / "ocv" / "reports"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"ocv_{area}_{manifest.get('week', 'unknown')}.html"
 

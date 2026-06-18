@@ -109,7 +109,7 @@ python scripts/draft_ocv_email.py \
 ```
 
 `--dry-run` writes only the local preview HTML to
-`output/email_drafts/ocv_email_<week>.html` and does NOT touch Outlook.
+`output/ocv/email-drafts/ocv_email_<week>.html` and does NOT touch Outlook.
 Open the preview in a browser to sanity-check rendering before the gate.
 
 Defaults the script auto-derives:
@@ -193,7 +193,7 @@ Always remind the user (one short sentence is enough):
 | `--prior-manifest <path>` | Override the WoW basis (defaults to manifest's `wow_basis`) |
 | `--metrics <path>` | Override the metrics JSON used for the Progress-at-a-glance chart (default: `_ocv_weekly_repo/metrics_v2.json`). Pass `--metrics ""` or point at a missing file to skip the chart entirely. |
 | `--chart-mode {cid,svg,none}` | How to embed the chart. **`cid`** (default): render PNG via Playwright + attach inline via Content-ID — works in every client including OWA, Classic Outlook for Windows, Mac, mobile, and Gmail. **`svg`**: inline `<svg>` (renders in OWA briefly then is stripped on the sanitizer's round-trip — kept for debugging only). **`none`**: omit the chart entirely. |
-| `--chart-png-out <path>` | Where to write the rendered chart PNG (cid mode). Defaults to `output/email_drafts/ocv_progress_chart_<week>.png`. |
+| `--chart-png-out <path>` | Where to write the rendered chart PNG (cid mode). Defaults to `output/ocv/email-drafts/ocv_progress_chart_<week>.png`. |
 | `--out <path>` | Override preview HTML output location |
 
 ## Outlook-safe HTML rules (why the script generates what it does)
@@ -328,9 +328,9 @@ The script ensures every section degrades gracefully:
   `-ChartImage <png> -ChartCid <id>` to rewrite the body's relative
   `<img>` to `cid:<id>` and attach the PNG as a hidden inline (CID)
   MAPI attachment in a single shot.
-- `output/email_drafts/ocv_email_<week>.html` — local preview HTML
+- `output/ocv/email-drafts/ocv_email_<week>.html` — local preview HTML
   (references the chart PNG by relative filename so it opens cleanly
   in a browser; COM helper rewrites to `cid:` at draft-creation time)
-- `output/email_drafts/ocv_progress_chart_<week>.png` — rendered
+- `output/ocv/email-drafts/ocv_progress_chart_<week>.png` — rendered
   chart PNG (cid mode). Attached inline; never sent as a visible
   attachment.

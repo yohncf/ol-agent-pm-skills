@@ -35,7 +35,7 @@ The sub-skills stay fully isolated and independently invocable:
 | 1 | `ocv-extract-feedback`          | date range, area               | `data/ocv_<area>_<from>_to_<to>_range.csv`     |
 | 2 | `ocv-extract-dash`     | date range                     | `data/dash_ocv_<from>_to_<to>.csv`             |
 | 3 | `ocv-analyze-and-ticket` | both CSVs from steps 1 & 2  | `_manifest.json` + `_subtopics.csv` + `_report.md` |
-| 4 | `ocv-publish-report`   | the three artifacts from step 3 | `output/ocv_<area>_<week>.html`                |
+| 4 | `ocv-publish-report`   | the three artifacts from step 3 | `output/ocv/reports/ocv_<area>_<week>.html`     |
 | 5 | `ocv-publish-github` (optional) | the HTML from step 4 + manifest from step 3 | new commit on `gim-home/OCV-Weekly` `main` |
 | 6 | `ocv-draft-email` (optional) | manifest + subtopics + report MD from step 3 (+ optional ADO query URL from step 3.5, live URL from step 5) | local Classic Outlook draft saved to user's Drafts folder |
 
@@ -221,7 +221,7 @@ new area, or the prior file isn't named with the expected pattern),
 pass `--prior-manifest <path>` explicitly when known, otherwise let
 the WoW section render its "WoW comparison not available" note.
 
-Expected output: `output/ocv_<area>_<to>.html` (single self-contained
+Expected output: `output/ocv/reports/ocv_<area>_<to>.html` (single self-contained
 file, opens in the browser by default).
 
 After step 4, surface to the user:
@@ -259,7 +259,7 @@ See `.claude/skills/ocv-publish-github/SKILL.md` for full doctrine and
 flag overrides.
 
 If the user picks "No, don't publish" at the prompt, the local HTML in
-`output/` is still ready to paste into Loop / email — the pipeline is
+`output/ocv/reports/` is still ready to paste into Loop / email — the pipeline is
 complete either way.
 
 After step 5 (or after step 4 if the user skipped 5), proceed to step 6.
@@ -335,7 +335,7 @@ date. If anything fails mid-run:
 Detect resume intent by checking which artifacts already exist for the
 resolved `area`/`to`:
 
-- If `output/ocv_<area>_<to>.html` exists and user says "publish" → ask
+- If `output/ocv/reports/ocv_<area>_<to>.html` exists and user says "publish" → ask
   whether they mean ocv-publish-report (regenerate) or ocv-publish-github (upload).
 - If `_ocv_weekly_repo/reports/<to>.html` already exists, ocv-publish-github
   will surface `replaced entry` in its plan output — confirm the
@@ -357,7 +357,7 @@ data/dash_ocv_2026-05-12_to_2026-05-18.csv                      (step 2)
 data/manifests/ocv_outlook-agent_2026-05-18_manifest.json       (step 3)
 data/ocv_outlook-agent_2026-05-18_subtopics.csv                 (step 3)
 data/ocv_outlook-agent_2026-05-18_report.md                     (step 3)
-output/ocv_outlook-agent_2026-05-18.html                        (step 4)
+output/ocv/reports/ocv_outlook-agent_2026-05-18.html             (step 4)
 ```
 
 Plus, if the user opted into step 5:
@@ -372,7 +372,7 @@ https://gim-home.github.io/OCV-Weekly/reports/2026-05-18.html    (live)
 Plus, if the user opted into step 6:
 
 ```
-output/email_drafts/ocv_email_2026-05-18.html                    (step 6 preview)
+output/ocv/email-drafts/ocv_email_2026-05-18.html               (step 6 preview)
 new item in Classic Outlook → Drafts (Subject: "Weekly OCV
   Feedback (MM/DD - MM/DD) + CopilotDash", recipients blank)     (step 6)
 ```
@@ -407,7 +407,7 @@ sub-skills). The compliance constraints of the strictest sub-skill in
 the chain apply: run this orchestrator only via **GitHub Copilot CLI**
 (AOAI / Anthropic via Copilot). Do not use with Claude Code.
 
-The final HTML artifact (`output/...html`) and the manifest JSON are
+The final HTML artifact (`output/ocv/reports/...html`) and the manifest JSON are
 both safe to share with leadership — they contain aggregate stats,
 OCV item IDs, and PM-paraphrased issue descriptions, but no raw
 verbatim. The intermediate CSVs (steps 1, 2, and the subtopics CSV)

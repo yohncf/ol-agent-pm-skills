@@ -804,13 +804,13 @@ def main() -> int:
                          "'none' omits the chart entirely.")
     ap.add_argument("--chart-png-out", type=Path, default=None,
                     help="Path to write the rendered chart PNG (cid mode). "
-                         "Defaults to output/email_drafts/ocv_progress_chart_<week>.png.")
+                         "Defaults to output/ocv/email-drafts/ocv_progress_chart_<week>.png.")
     ap.add_argument("--closing-paragraph", action="append", default=None,
                     help="Extra paragraph(s) to include after the ADO line. Can be repeated.")
     ap.add_argument("--signoff", default="Cheers,<br><em>_Yohn</em>",
                     help="Sign-off HTML (set '' to omit).")
     ap.add_argument("--out", type=Path, default=None,
-                    help="Output preview HTML path (default: output/email_drafts/<base>_email.html).")
+                    help="Output preview HTML path (default: output/ocv/email-drafts/<base>_email.html).")
     ap.add_argument("--helper", type=Path,
                     default=Path("scripts/draft_ocv_email_com.ps1"),
                     help="Path to the PowerShell COM helper.")
@@ -867,7 +867,7 @@ def main() -> int:
     # none: omit the chart entirely.
     chart_html: str = ""
     chart_png: Optional[Path] = None
-    out_dir = (args.out.parent if args.out else Path("output/email_drafts"))
+    out_dir = (args.out.parent if args.out else Path("output/ocv/email-drafts"))
     out_dir.mkdir(parents=True, exist_ok=True)
 
     metrics_path: Optional[Path] = (
@@ -919,7 +919,7 @@ def main() -> int:
     )
 
     # Write preview HTML
-    out = args.out or Path("output/email_drafts") / f"ocv_email_{week}.html"
+    out = args.out or Path("output/ocv/email-drafts") / f"ocv_email_{week}.html"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(body, encoding="utf-8")
     print(f"[draft] wrote preview HTML: {out}  ({len(body):,} bytes)")

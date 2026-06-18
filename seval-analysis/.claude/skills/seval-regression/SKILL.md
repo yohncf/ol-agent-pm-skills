@@ -104,7 +104,7 @@ skill's three internal sub-steps in order:
 Expected outputs:
 
 - `data/eval-manifests/<date>_<cid>_vs_<eid>_manifest.json`
-- `output/eval-regression_<date>_<cid>_vs_<eid>.html`
+- `output/seval/regression/eval-regression_<date>_<cid>_vs_<eid>.html`
 
 Surface both paths and the headline KPIs:
 

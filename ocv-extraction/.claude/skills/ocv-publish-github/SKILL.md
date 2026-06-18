@@ -41,7 +41,7 @@ Do **not** invoke for:
 ## Prerequisites
 
 1. A built HTML report from `ocv-publish-report`
-   (e.g. `output/ocv_outlook-agent_<week>.html`)
+   (e.g. `output/ocv/reports/ocv_outlook-agent_<week>.html`)
 2. The matching analyze manifest at
    `data/manifests/ocv_outlook-agent_<week>_manifest.json` (for
    auto-deriving `week`, `range`, `negatives`, `subtopics`)
@@ -73,7 +73,7 @@ Use `ask_user` with three options:
 ```bash
 python scripts/publish_to_github.py \
     --manifest data/manifests/ocv_outlook-agent_<week>_manifest.json \
-    --html     output/ocv_outlook-agent_<week>.html \
+    --html     output/ocv/reports/ocv_outlook-agent_<week>.html \
     --highlights "<the agreed line>" \
     --dry-run
 ```
@@ -109,7 +109,7 @@ Only on "Yes, publish" → run the real command.
 ```bash
 python scripts/publish_to_github.py \
     --manifest data/manifests/ocv_outlook-agent_<week>_manifest.json \
-    --html     output/ocv_outlook-agent_<week>.html \
+    --html     output/ocv/reports/ocv_outlook-agent_<week>.html \
     --highlights "<the agreed line>"
 ```
 
