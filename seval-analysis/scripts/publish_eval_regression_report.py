@@ -378,6 +378,7 @@ footer { margin-top: 60px; color: var(--text-faint); font-size: 12px; }
     <ul>
       <li><a href="./index.html">OCV Weekly</a></li>
       <li><a href="./eval.html" aria-current="page">EVAL Analysis</a></li>
+      <li><a href="./eval-runs.html">EVAL Run Analysis</a></li>
     </ul>
   </details>
 </nav>
@@ -672,6 +673,7 @@ NAV_BLOCK = (
     '      <ul>\n'
     '        <li><a href="./index.html" aria-current="page">OCV Weekly</a></li>\n'
     '        <li><a href="./eval.html">EVAL Analysis</a></li>\n'
+    '        <li><a href="./eval-runs.html">EVAL Run Analysis</a></li>\n'
     '      </ul>\n'
     '    </details>\n'
     '    ' + NAV_MARKER_END
