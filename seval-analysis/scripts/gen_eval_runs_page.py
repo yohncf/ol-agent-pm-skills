@@ -90,6 +90,10 @@ h1.title {{ font-family: var(--font-display); font-weight: 500; font-size: 32px;
 .tag.model {{ color: var(--model); border-color: var(--model); background: rgba(224,137,43,0.10); }}
 .tag.missing {{ color: var(--missing); border-color: var(--missing); background: rgba(31,159,184,0.10); }}
 .tag.assertion {{ color: var(--assertion); border-color: var(--assertion); background: rgba(106,168,79,0.10); }}
+.tag.omni {{ color: #7cc4a0; border-color: #7cc4a0; background: rgba(124,196,160,0.10); }}
+.tag.cg {{ color: var(--model); border-color: var(--model); background: rgba(224,137,43,0.10); }}
+.tag.fail {{ color: var(--error); border-color: var(--error); background: rgba(255,180,171,0.10); }}
+.tag.neutral {{ color: var(--text-muted); border-color: var(--outline); background: var(--surface-2); }}
 .highlights {{ margin-top: 10px; color: var(--text-muted); font-size: 13px; }}
 .empty {{ margin-top: 24px; padding: 40px; text-align: center; background: var(--surface);
   border: 1px dashed var(--outline); border-radius: 14px; color: var(--text-faint); }}
@@ -129,19 +133,28 @@ def esc(s):
 
 
 def card(a):
-    st = a.get("stats", {})
-    bk = a.get("buckets", {})
+    # Flexible schema (preferred): metrics=[{label,value}], tags=[{label,value,kind}].
+    # Legacy fallback: stats{both_arm_failures,queries,comparable} + buckets{model,missing_data,assertion}.
     metrics = ""
-    label_map = [("both_arm_failures", "both-arm fails"), ("queries", "queries"),
-                 ("comparable", "comparable")]
-    for key, lbl in label_map:
-        if key in st:
-            metrics += f'<span class="metric"><span class="n">{esc(st[key])}</span> {lbl}</span>\n      '
+    metric_items = a.get("metrics")
+    if metric_items is None:
+        st = a.get("stats", {})
+        metric_items = [{"label": lbl, "value": st[key]} for key, lbl in
+                        [("both_arm_failures", "both-arm fails"), ("queries", "queries"),
+                         ("comparable", "comparable")] if key in st]
+    for m in metric_items:
+        metrics += f'<span class="metric"><span class="n">{esc(m["value"])}</span> {esc(m["label"])}</span>\n      '
     tags = ""
-    for key, cls, lbl in [("model", "model", "Model"), ("missing_data", "missing", "Missing data"),
-                          ("assertion", "assertion", "Assertion")]:
-        if key in bk:
-            tags += f'<span class="tag {cls}">{lbl} {esc(bk[key])}</span>'
+    tag_items = a.get("tags")
+    if tag_items is None:
+        bk = a.get("buckets", {})
+        tag_items = [{"label": lbl, "value": bk[key], "kind": cls} for key, cls, lbl in
+                     [("model", "model", "Model"), ("missing_data", "missing", "Missing data"),
+                      ("assertion", "assertion", "Assertion")] if key in bk]
+    for tg in tag_items:
+        kind = esc(tg.get("kind", "neutral"))
+        val = f' {esc(tg["value"])}' if tg.get("value") not in (None, "") else ""
+        tags += f'<span class="tag {kind}">{esc(tg["label"])}{val}</span>'
     kind = f'<span class="kind">{esc(a["kind"])}</span>' if a.get("kind") else ""
     hl = f'<div class="highlights">{esc(a["highlights"])}</div>' if a.get("highlights") else ""
     buckets_html = f'<span class="buckets">{tags}</span>' if tags else ""
