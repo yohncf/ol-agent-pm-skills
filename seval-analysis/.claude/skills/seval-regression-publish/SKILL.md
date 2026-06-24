@@ -257,6 +257,12 @@ The same injection happens in the generated `eval.html`, just with
   `reports/<week>.html` + `reports.json`; this skill owns
   `eval-reports/<slug>.html` + `eval-reports.json` + `eval.html`. The
   two coexist in the same repo without conflict.
+- **Sibling: `seval-run-publish`** owns the third nav section, **EVAL Run
+  Analysis** (`eval-runs/<slug>.html` + `eval-runs.json` + `eval-runs.html`),
+  for standalone single-run studies. This script **owns the shared 3-item
+  dropdown nav** on `index.html` + `eval.html` (both nav templates already list
+  `eval-runs.html`); a new section requires editing **both** templates here or
+  it reverts on the next regression publish.
 
 ## Compliance
 

@@ -382,6 +382,9 @@ pass rate, top failure family per arm) to the user when done.
 
 ## Relationship to other skills
 
+- **`seval-run-publish`** — publishes this skill's HTML report to the
+  **EVAL Run Analysis** (`eval-runs.html`) section of the OCV-Weekly Pages
+  site. Use it as the optional publish step after a single-run triage.
 - **`seval-regression-analyze`** — pairwise regression between two runs.
   This skill's fingerprint shares the `feature_flags` extraction logic and
   the same `(query, assertion)` join key, so two fingerprints can be diffed
