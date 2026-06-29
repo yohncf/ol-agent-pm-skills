@@ -20,6 +20,7 @@ reuses its ADO sync engine, owners-routing config, and 13-topic taxonomy.
 | `seval-regression-ticket-sync` | File one ADO Bug per `(failing_side, topic, category)` cluster from a regression manifest. Always net-new (never links). Tags `OutlookAgent` + `SevalRegression`, auto-assigned via the shared owners config. Two-gate confirmation |
 | `seval-regression` | **Orchestrator.** Runs `seval-regression-analyze` → `seval-regression-publish` → optional `seval-regression-ticket-sync`, pausing for user confirmation between steps |
 | `seval-run-triage` | Single-run failure triage. Joins the four SEVAL run artifacts (Assertions CSV, Queries TSV, Assertion-doctrine YAML, Settings JSON), enriches each row with `level` (critical/expected/aspirational) and `segment`, and classifies every failed assertion into one of four root-cause families (missing data / assertion / agent performance / model). Emits a diffable fingerprint manifest + PM-voice markdown summary + dark-themed HTML report. Pair with `seval-regression-analyze` for run-vs-run comparison |
+| `seval-run-report` | Render a dark-themed self-contained HTML report from the **new unified single-run JSON** (`eval_report_<name>_<DD_MM_YYYY_HHMM>.json`) the eval team now emits — one file bundling `summary` aggregates + every per-query result (assertion judge rationales, dimensions, generated code, execution result, perf). One deterministic script, no artifact joining. Merged filterable/collapsible per-query list (sorted worst-first, dimension pills on each row, nested code/result dropdowns). Hand off to `seval-run-publish` to put it on the site |
 
 ## Scripts
 
@@ -34,6 +35,7 @@ reuses its ADO sync engine, owners-routing config, and 13-topic taxonomy.
 | `scripts/seval_regression_ado_sync.py` | `seval-regression-ticket-sync` (imports `../shared/ado_sync.py`) |
 | `scripts/seval_run_triage_extract.py` | `seval-run-triage` (join run artifacts → fingerprint manifest) |
 | `scripts/seval_run_triage_render.py` | `seval-run-triage` (manifest → markdown + HTML) |
+| `scripts/eval_single_run_report.py` | `seval-run-report` (new unified single-run `eval_report_*.json` → dark-themed self-contained HTML) |
 
 ## Shared dependencies
 

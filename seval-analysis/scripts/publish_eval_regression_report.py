@@ -608,7 +608,7 @@ def render_trend(reports: List[Dict[str, Any]]) -> str:
 
 
 def render_eval_html(site_manifest: Dict[str, Any]) -> str:
-    title = site_manifest.get("title", "OL Agent EVAL Analysis")
+    title = site_manifest.get("title", "OL Agent - Eval progress")
     subtitle = site_manifest.get("subtitle", "Regression reports for SEVAL HeroEval runs")
     owner = site_manifest.get("owner", "")
     reports = site_manifest.get("reports", []) or []
@@ -948,7 +948,7 @@ def main() -> int:
         site_manifest = json.loads(site_manifest_path.read_text(encoding="utf-8"))
     else:
         site_manifest = {
-            "title": "OL Agent EVAL Analysis",
+            "title": "OL Agent - Eval progress",
             "subtitle": "Regression reports for SEVAL HeroEval runs",
             "owner": manifest.get("control", {}).get("owner", _default_owner()),
             "reports": [],

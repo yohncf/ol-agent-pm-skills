@@ -178,7 +178,7 @@ def main():
     manifest = json.loads((repo / "eval-runs.json").read_text(encoding="utf-8"))
     analyses = sorted(manifest.get("analyses", []), key=lambda x: x.get("date", ""), reverse=True)
     body = HEAD.format(
-        title=esc(manifest.get("title", "OL Agent EVAL Run Analysis")),
+        title=esc(manifest.get("title", "OL Agent - Stand Alone Evaluations")),
         subtitle=esc(manifest.get("subtitle", "")),
         owner=esc(manifest.get("owner", "")),
         nav=NAV,
