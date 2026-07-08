@@ -1,6 +1,6 @@
-# OCV Extraction — Skills Handover Guide
+# OCV Extraction — Skills  Guide
 
-A complete, plain-English guide to every skill in `ocv-extraction/`, written so that
+A complete, guide to every skill in `ocv-extraction/`, written so that
 **anyone can pick up this work and replicate it**. Read this end-to-end once, then use
 the per-skill sections as a reference.
 
