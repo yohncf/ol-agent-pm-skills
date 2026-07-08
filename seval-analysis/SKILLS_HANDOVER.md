@@ -14,13 +14,13 @@ per-skill sections as a reference.
 
 **All skills, scripts, and shared code live in a single GitHub repository:**
 
-> **`github.com/yohncf/ol-agent-pm-skills`** — the "OLAgentWork" monorepo.
+> **`github.com/yohnathanc_microsoft/ol-agent-pm-skills`** — the "OLAgentWork" monorepo.
 
 To get everything needed to run these skills, **clone the whole repo** (this is the file
 to download — the entire monorepo, not individual files):
 
 ```bash
-git clone https://github.com/yohncf/ol-agent-pm-skills.git OLAgentWork
+git clone https://github.com/yohnathanc_microsoft/ol-agent-pm-skills.git OLAgentWork
 cd OLAgentWork
 ```
 
@@ -36,8 +36,8 @@ That one clone provides every tracked folder the skills need:
 
 ### Backup status (verified 2026-07-07)
 
-- Committed skills/scripts on `main` **are** pushed to `ol-agent-pm-skills` (origin/main
-  is up to date — nothing ahead).
+- Committed skills/scripts on `main` **are** pushed to the canonical repo
+  `yohnathanc_microsoft/ol-agent-pm-skills` (also mirrored to `yohncf/ol-agent-pm-skills`).
 - **Not yet backed up at handover time** (uncommitted / untracked) — **commit & push
   these before handing off**, or they are lost:
   - Modified, uncommitted: `seval-run-triage/SKILL.md` (and, in `../ocv-extraction`,
@@ -60,7 +60,7 @@ Anyone reusing this must replace them, or publishing will push to the wrong plac
 |---|---|---|
 | `yohncf/OCV-Weekly_temp` + `https://yohncf.github.io/OCV-Weekly_temp/` (personal mirror) | `scripts/publish_eval_regression_report.py` (`PERSONAL_LIVE_BASE`); `scripts/create_codegen_ado_bugs.py` (`REPORT`); `seval-run-publish`, `seval-regression`, `seval-regression-publish`, `seval-regression-ticket-sync` SKILL.md | your own mirror repo |
 | `gim-home/OCV-Weekly` + `https://gim-home.github.io/OCV-Weekly` (team Pages site) | `scripts/publish_eval_regression_report.py` (`DEFAULT_GITHUB_URL`, `DEFAULT_LIVE_BASE`) | your team's Pages repo |
-| `yohncf/ol-agent-pm-skills` (this monorepo) | `seval-run-publish/SKILL.md`; git remote of the clone | your fork |
+| `yohncf/ol-agent-pm-skills` (hardcoded monorepo self-reference) | `seval-run-publish/SKILL.md`; git remote of the clone | `yohnathanc_microsoft/ol-agent-pm-skills` (the canonical repo) |
 | Real people's emails | `../shared/configs/ado_owners_outlook-agent.json` (git-ignored) | your team's owners map |
 
 ## 1. What this project does

@@ -16,13 +16,13 @@ the per-skill sections as a reference.
 
 **All skills, scripts, and shared code live in a single GitHub repository:**
 
-> **`github.com/yohncf/ol-agent-pm-skills`** — the "OLAgentWork" monorepo.
+> **`github.com/yohnathanc_microsoft/ol-agent-pm-skills`** — the "OLAgentWork" monorepo.
 
 To get everything needed to run these skills, **clone the whole repo** (this is the file
 to download — the entire monorepo, not individual files):
 
 ```bash
-git clone https://github.com/yohncf/ol-agent-pm-skills.git OLAgentWork
+git clone https://github.com/yohnathanc_microsoft/ol-agent-pm-skills.git OLAgentWork
 cd OLAgentWork
 ```
 
@@ -37,8 +37,8 @@ That one clone provides every tracked folder the skills need:
 
 ### Backup status (verified 2026-07-07)
 
-- Committed skills/scripts on `main` **are** pushed to `ol-agent-pm-skills` (origin/main
-  is up to date — nothing ahead).
+- Committed skills/scripts on `main` **are** pushed to the canonical repo
+  `yohnathanc_microsoft/ol-agent-pm-skills` (also mirrored to `yohncf/ol-agent-pm-skills`).
 - **Not yet backed up at handover time** (uncommitted / untracked) — **commit & push
   these before handing off**, or they are lost:
   - Modified, uncommitted: `ocv-analyze-and-ticket/SKILL.md`, `ocv-draft-email/SKILL.md`,
@@ -61,7 +61,7 @@ Anyone reusing this must replace them, or publishing will push to the wrong plac
 |---|---|---|
 | `yohncf/OCV-Weekly_temp` + `https://yohncf.github.io/OCV-Weekly_temp/` (personal mirror) | `scripts/draft_ocv_email.py` (`DEFAULT_MIRROR_URL`); `ocv-draft-email/SKILL.md` | your own mirror repo, or pass `--mirror-url ""` to skip |
 | `gim-home/OCV-Weekly` + `https://gim-home.github.io/OCV-Weekly` (team Pages site) | `scripts/publish_to_github.py` (`DEFAULT_GITHUB_URL`, `DEFAULT_LIVE_BASE`); `scripts/draft_ocv_email.py` (`DEFAULT_DASHBOARD_URL`, `DEFAULT_REPORT_URL_FMT`); `scripts/publish_ocv_report_v1_archive.py` (back-link) | your team's Pages repo |
-| `yohncf/ol-agent-pm-skills` (this monorepo) | git remote of the clone | your fork |
+| `yohncf/ol-agent-pm-skills` (hardcoded monorepo self-reference) | git remote of the clone | `yohnathanc_microsoft/ol-agent-pm-skills` (the canonical repo) |
 | `yohnathanc@microsoft.com` | `ocv-ticket-sync/SKILL.md` (example `--override`) | your alias |
 | Real people's emails | `../shared/configs/ado_owners_outlook-agent.json` (git-ignored) | your team's owners map |
 
