@@ -10,6 +10,47 @@ per-skill sections as a reference.
 
 ---
 
+## ⚡ Quick start (60 seconds)
+
+**1. Get the code** (one clone — the whole monorepo):
+
+```bash
+git clone https://github.com/yohnathanc_microsoft/ol-agent-pm-skills.git OLAgentWork
+cd OLAgentWork/seval-analysis
+pip install playwright && python -m playwright install chromium   # SEVAL portal automation
+pip install azure-identity && az login                            # ADO ticket sync + auth
+```
+
+**2. Launch the agent** — open a terminal in `seval-analysis/` and start GitHub Copilot CLI:
+
+```bash
+copilot
+```
+
+First run of a portal skill opens Edge for SSO against `seval.microsoft.com` (persistent
+profile at `.browser-profile-seval/`); ADO auth is `az login`.
+
+**3. Just ask.** Skills are invoked in plain English — you describe the runs, the agent
+fetches artifacts and runs the analysis. Copy/paste one of these (swap in your run IDs):
+
+| Goal | Prompt to paste into Copilot CLI |
+|------|----------------------------------|
+| **Full regression study** (fetch → analyze → publish → optional ADO bugs) | `Run a full SEVAL regression comparing control run 576123 vs experiment run 576292.` |
+| Just download the two runs' inputs | `Fetch the SEVAL regression inputs for the two runs listed in regression.json.` |
+| Compare two runs, keep it local | `Analyze the SEVAL regression for control vs experiment and render the HTML report — don't publish yet.` |
+| Triage a single failing run | `Triage single SEVAL run 576292 and give me the failure breakdown by root-cause family.` |
+| Report from the new unified JSON | `Render a report from this eval_report_*.json and publish it to the EVAL Run Analysis site.` |
+| File engineering bugs | `File ADO bugs from the latest regression manifest, one per (side, topic, category) cluster.` |
+| Build eval queries from real feedback | `Synthesize eval queries from this week's OCV/Dash CSV, following the eval doctrine.` |
+
+> **Tip:** `Run a full SEVAL regression comparing control run … vs experiment run …` maps to
+> the `seval-regression` orchestrator, which pauses for your confirmation between analyze →
+> publish → ticket-sync. Everything below is the detailed per-skill reference.
+
+For full setup/auth see §3; artifact locations are in §4.
+
+---
+
 ## 0. Where this code lives & what to download
 
 **All skills, scripts, and shared code live in a single GitHub repository:**

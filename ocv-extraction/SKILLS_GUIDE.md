@@ -12,6 +12,45 @@ the per-skill sections as a reference.
 
 ---
 
+## ⚡ Quick start (60 seconds)
+
+**1. Get the code** (one clone — the whole monorepo):
+
+```bash
+git clone https://github.com/yohnathanc_microsoft/ol-agent-pm-skills.git OLAgentWork
+cd OLAgentWork/ocv-extraction
+npm install && npm run check     # installs deps + preflight-checks Node/Playwright/Edge/configs
+```
+
+**2. Launch the agent** — open a terminal in `ocv-extraction/` and start GitHub Copilot CLI
+(the **only** approved tool for this data):
+
+```bash
+copilot
+```
+
+First run of any browser skill (OCV/Dash) opens Edge for SSO; ODS/ADO auth is `az login`.
+
+**3. Just ask.** The skills are invoked in plain English — you don't call scripts directly.
+Copy/paste one of these prompts (swap in your dates/area):
+
+| Goal | Prompt to paste into Copilot CLI |
+|------|----------------------------------|
+| **Full weekly pipeline** (extract → analyze → subtopics → dashboard, pauses for review) | `Run a full OCV/Dash pipeline for the dates 2026-06-30 to 2026-07-06.` |
+| Quick themed read of recent feedback | `Extract Accounts OCV feedback for the last 7 days and give me a themed summary.` |
+| Classify + build engineering tickets | `Analyze this week's OCV, classify it into the 13-topic taxonomy, and generate the P0–P3 subtopics CSV.` |
+| Push tickets to ADO | `Sync the P0/P1/P2 rows from the latest subtopics CSV to ADO work items.` |
+| Publish + announce | `Publish the latest OCV weekly report to GitHub Pages and draft the leadership email.` |
+| Just the Dash→OCV join | `Extract the Copilot Dash feedback joined to OCV for 2026-06-30 to 2026-07-06.` |
+
+> **Tip:** `Run a full OCV/Dash pipeline for the dates …` maps to the `ocv-weekly`
+> orchestrator, which stops once after the subtopics CSV so you can review/edit before it
+> publishes. Everything below is the detailed reference for when you want finer control.
+
+For the full download/setup/auth details see §0, §3; for the taxonomy see §4.
+
+---
+
 ## 0. Where this code lives & what to download
 
 **All skills, scripts, and shared code live in a single GitHub repository:**
