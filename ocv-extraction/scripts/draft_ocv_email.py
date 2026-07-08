@@ -73,7 +73,7 @@ def extract_tldr_bullets(report_md: Optional[Path]) -> List[Tuple[str, str]]:
     if not report_md or not report_md.exists():
         return []
     text = report_md.read_text(encoding="utf-8")
-    m = re.search(r"##\s+TL;DR\s*\n+(.+?)(?=\n##\s|\Z)", text, flags=re.DOTALL)
+    m = re.search(r"##\s+(?:[\d.]+\s+)?TL;DR\s*\n+(.+?)(?=\n#{2,3}\s|\Z)", text, flags=re.DOTALL)
     if not m:
         return []
     bullets: List[Tuple[str, str]] = []
@@ -661,33 +661,23 @@ def build_full_body(
 <table role="presentation" width="720" cellpadding="0" cellspacing="0" border="0" style="max-width:720px;">
 <tr><td style="padding:16px 8px; font-family:{FONT}; font-size:14px; color:#202124; line-height:1.55;">
 
-<p style="margin:0 0 12px 0;">Hello there,</p>
-
-<p style="margin:0 0 12px 0;">{intro}</p>
-
-<p style="margin:0 0 12px 0;">
-  As a reminder, the dashboard with more details on each category and ADO items to follow can be found here:
-  <a href="{dashboard_url}" style="color:#1a73e8;">{dashboard_url}</a>{mirror_html}
-</p>
-
-<p style="margin:0 0 12px 0;">{progress}</p>
-
-{head_html}
-
-{progress_chart_html}
+<p style="margin:0 0 20px 0;">Hello there,</p>
 
 <!-- Headline numbers -->
-{section_eyebrow("Headline numbers", f"Week of {date_range}")}
+{section_eyebrow("Headline numbers", f"Week of {date_range.replace(' (inclusive)', '')}")}
 
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px;">
   <tr>{kpi_row}</tr>
 </table>
 
-<!-- TL;DR -->
-{section_eyebrow("TL;DR", "What you need to know")}
+<!-- What you need to know -->
+{section_eyebrow("Summary", "What you need to know")}
 <ul style="margin:0 0 24px 0; padding-left:22px; font-family:{FONT}; font-size:13px; color:#202124; line-height:1.55;">
   {tldr_html}
 </ul>
+
+<!-- Progress at a glance -->
+{progress_chart_html}
 
 <!-- Topic shifts -->
 {section_eyebrow("Topic shifts (week over week)", wow_title)}

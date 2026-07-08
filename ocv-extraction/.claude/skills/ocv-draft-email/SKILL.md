@@ -238,40 +238,43 @@ intact (verified 2026-06-08 against Classic Outlook 2509).
 
 ## What goes in the email body (default template)
 
-In order, top to bottom:
+In order, top to bottom (streamlined shape adopted 2026-07-01 — greeting
+straight into the numbers, no intro/dashboard/highlight preamble):
 
 1. **Greeting** — "Hello there,"
-2. **Intro paragraph** — Frames the week / area being reported on
-3. **Dashboard links** — `gim-home/OCV-Weekly` Pages URL + optional
-   `yohncf` mirror for non-EMU audiences
-4. **"Progress at a glance" paragraph** — explains the new index
-   section with the 👍👎 callout
-5. **Headline highlight** — Optional one-line callout from `--highlights`
-6. **Progress at a glance chart** — Dual-axis line chart of
+2. **Headline numbers** (eyebrow + section title) — 4 KPI cards:
+   Rating · Verbatim negatives · Top pain topic · P0+P1 queue. Each
+   card shows value, WoW delta (with up/down/flat arrow + color), and
+   a caption. Section title is `Week of <range>` with any trailing
+   ` (inclusive)` stripped.
+3. **What you need to know** (eyebrow "Summary") — bullet list pulled
+   verbatim from `report-md`'s `## TL;DR` section (the extractor tolerates
+   a numbered heading such as `## 1. TL;DR`), with the bold prefix
+   preserved. Falls back to a single auto volume sentence only if no
+   TL;DR bullets are found.
+4. **Progress at a glance chart** — Dual-axis line chart of
    `User Rating` vs `Negative comments` across every published week,
    built from `metrics_v2.json`. Sage = positive-rating %, terracotta =
    negative-comment volume. Datalabels above/below each marker; 5-tick
-   grid; legend in the card header (not the SVG itself). Rendered to a
-   PNG via headless Chromium and attached inline via Content-ID
-   (`cid:ocv_progress_chart`) — **renders in every client: OWA,
-   Classic Outlook for Windows, Outlook for Mac, Apple Mail, Gmail,
-   and the Outlook mobile apps.** Skip the chart entirely by passing
-   `--chart-mode none`, by passing `--metrics ""`, or by deleting the
-   metrics file. The legacy `--chart-mode svg` is kept for debugging
-   only — OWA strips inline SVG on its sanitization round-trip.
-7. **Headline numbers** (eyebrow + section title) — 4 KPI cards:
-   Rating · Verbatim negatives · Top pain topic · P0+P1 queue. Each
-   card shows value, WoW delta (with up/down/flat arrow + color), and
-   a caption.
-8. **TL;DR** — bullet list pulled verbatim from `report-md`'s
-   `## TL;DR` section, with the bold prefix preserved
-9. **Topic shifts (WoW)** — full 13-row table, sorted by this-week
+   grid; legend in the card header. Rendered to a PNG via headless
+   Chromium and attached inline via Content-ID (`cid:ocv_progress_chart`)
+   — **renders in every client: OWA, Classic Outlook for Windows,
+   Outlook for Mac, Apple Mail, Gmail, and the Outlook mobile apps.**
+   Skip the chart entirely by passing `--chart-mode none`, `--metrics ""`,
+   or by deleting the metrics file. The legacy `--chart-mode svg` is kept
+   for debugging only — OWA strips inline SVG on its sanitization round-trip.
+5. **Topic shifts (WoW)** — full 13-row table, sorted by this-week
    count desc, with a colored "delta pp" chip per row
-10. **Closing block** (separated by a top border):
-    - ADO query link (if `--ado-query-url` provided)
-    - Three configurable paragraphs (other-projects ping / opt-out /
-      walk-through offer)
-    - Sign-off
+6. **Closing block** (separated by a top border):
+   - ADO query link (if `--ado-query-url` provided)
+   - One or more configurable paragraphs (`--closing-paragraph`,
+     repeatable) — e.g., the walk-through offer
+   - Sign-off (`--signoff`, defaults to `Cheers,<br><em>_Yohn</em>`)
+
+> The `--intro`, `--progress-blurb`, `--highlights`, and `--mirror-url`
+> flags still parse but are **no longer rendered** in the body since the
+> 2026-07-01 reshape. The dashboard link now lives only in the chart
+> card's "Interactive version on the dashboard" footer.
 
 The script ensures every section degrades gracefully:
 

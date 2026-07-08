@@ -40,6 +40,13 @@ Resolve:
 - **csv-file** — path to an extracted OCV CSV (`data/ocv_<area>_<date>.csv`
   or `data/ocv_<area>_<date>_range.csv`). If the user does not specify,
   list available CSVs in `data/` and ask which one to use.
+  - **Note on scope:** a standard CSV is verbatim-only (commenters). The
+    manifest also needs **whole-population** aggregates (`total_items`,
+    `rating`, `sentiment`, `clients`, `languages`) — see Manifest section 7.
+    If you only have a verbatim CSV, run the extractor once more with
+    `--include-structured` for the same range to capture the no-comment
+    thumbs before writing the manifest. Never derive `rating` from the
+    verbatim subset.
 - **week label** — `YYYY-MM-DD` for the most recent day in the CSV's date
   range (used in output file names).
 - **prior manifest** — optional. If omitted, default to the most recent
@@ -201,15 +208,21 @@ A brief summary of the primary topics, their prevalence, and any significant WoW
 
 #### 1.1 Dataset Summary table
 
+Keep the two populations visually distinct: **rating is whole-population**, **sentiment is verbatim-only**. Do not present the verbatim thumbs split as the rating.
+
 | Metric | Top 1 | Top 2 | Top 3 | Other |
 |--------|-------|-------|-------|-------|
-| Total items |  *single cell* — n |  |  |  |
-| Sentiment |  Negative (n, %) |  Positive (n, %) |  Neutral (n, %) | — |
-| Rating |  ThumbsDown (n, %) |  ThumbsUp (n, %) | — | — |
-| Language |  en (n, %) |  es (n, %) |  ja (n, %) |  other (n, %) |
-| Client |  Desktop Monarch (n, %) |  Desktop Win32 (n, %) |  OWA (n, %) |  other (n, %) |
+| Total submissions |  *single cell* — n (verbatim + no-comment) |  |  |  |
+| Rating (all feedback) |  ThumbsUp (n, %) |  ThumbsDown (n, %) | — | — |
+| Verbatim sentiment (commenters) |  Negative (n, %) |  Positive (n, %) |  Neutral (n, %) | — |
+| Verbatim rating (commenters only) |  ThumbsDown (n, %) |  ThumbsUp (n, %) | — | — |
+| Language (all) |  en (n, %) |  es (n, %) |  ja (n, %) |  other (n, %) |
+| Client (all) |  Desktop Monarch (n, %) |  Desktop Win32 (n, %) |  OWA (n, %) |  other (n, %) |
 
-Use one row per metric. Always show counts AND percentages.
+Use one row per metric. Always show counts AND percentages. The headline
+"Rating (all feedback)" must be majority thumbs-up in a healthy week; if it is
+not, you have likely populated rating verbatim-only — re-extract with
+`--include-structured` (see Manifest section 7).
 
 ### 2. Key Findings
 A short bullet point list of the key findings and insights from the analysis, including any notable user pain points or areas for improvement. Tag every claim that depends on a topic with `n < 3` as anecdotal.
@@ -306,7 +319,49 @@ Priority combines **severity of the failure mode** with **prevalence (Item Count
 **CSV encoding:** save as UTF-8 **with BOM** and use ASCII hyphen (`-`) instead of em-dash (`—`) so Excel renders correctly on default ANSI open.
 
 ### 7. Weekly Manifest (JSON)
-File: `data/manifests/ocv_outlook-agent_<YYYY-MM-DD>_manifest.json`. Schema:
+File: `data/manifests/ocv_outlook-agent_<YYYY-MM-DD>_manifest.json`.
+
+> **CRITICAL — field scope (whole-population vs verbatim-only).** The manifest
+> mixes two populations and they must NOT be conflated. Getting this wrong
+> produces a dashboard that looks alarming (e.g. "74% thumbs-down") when the
+> agent is actually well-liked (e.g. 76% thumbs-up overall).
+>
+> | Field | Scope | Population |
+> |-------|-------|------------|
+> | `total_items` | **whole-population** | ALL submissions in range (verbatim + no-comment) |
+> | `verbatim_items` | count | submissions that left a written comment |
+> | `structured_only_items` | count | no-comment thumbs (`total_items - verbatim_items`) |
+> | `rating` (`ThumbsUp`/`ThumbsDown`) | **whole-population** | thumbs across ALL submissions |
+> | `sentiment` | **whole-population** | verbatim sentiment + an `Unknown` bucket sized = `structured_only_items` |
+> | `clients`, `languages` | **whole-population** | sum must equal `total_items` |
+> | `negative_items` | **verbatim-only** | Negative-sentiment commenters (the classified set) |
+> | `verbatim_rating` | verbatim-only | thumbs split among commenters only (transparency) |
+> | `topic_counts`, `topic_percentages`, `category_counts`, `submode_counts`, `paths`, `per_item_classifications` | **verbatim-only** | derived from the classified negatives |
+>
+> **How to populate the whole-population fields:** a plain verbatim CSV does
+> NOT contain the no-comment thumbs, so you cannot derive `rating`/`total_items`
+> from it. Run the extractor once more with `--include-structured` (the
+> `--wait-for-sentinel` handshake is the reliable way to get the grid to load
+> so the ES query is captured) for the SAME date range, then compute
+> `rating`/`total_items`/`sentiment`/`clients`/`languages` from that full set.
+> **Never** set `rating` to the verbatim-only thumbs (e.g. 110-down / 38-up) —
+> that is `verbatim_rating`, not `rating`.
+>
+> **Consistency checks before writing the manifest (all must hold):**
+> - `verbatim_items + structured_only_items == total_items`
+> - `clients` values sum to `total_items`; `languages` values sum to `total_items`
+> - `rating.ThumbsUp + rating.ThumbsDown` ≈ `total_items` (every submission has a thumb)
+> - `sentiment.Unknown == structured_only_items`
+> - `rating.ThumbsUp > rating.ThumbsDown` for a healthy week is normal — most
+>   satisfied users thumbs-up without commenting, so whole-population rating is
+>   far more positive than the verbatim sentiment split. If your `rating` shows
+>   majority thumbs-down, you have almost certainly populated it verbatim-only —
+>   STOP and re-extract with `--include-structured`.
+> - Compare against the prior manifest: `rating`/`total_items`/`clients` should
+>   be the same order of magnitude (whole-population). A 10x drop in
+>   `total_items` (e.g. 1387 → 148) is the signature of the verbatim-only bug.
+
+Schema:
 
 ```json
 {
@@ -319,12 +374,16 @@ File: `data/manifests/ocv_outlook-agent_<YYYY-MM-DD>_manifest.json`. Schema:
   "classification_method": "string — e.g. 'model-assisted manual, strict priority-rule application'",
   "methodology_notes": ["..."],
   "caveats": ["..."],
-  "total_items": 150,
-  "negative_items": 88,
-  "sentiment": {"Negative": 88, "Positive": 0, "Neutral": 0},
-  "rating": {"ThumbsDown": 88, "ThumbsUp": 0},
-  "languages": {"en": 0, "es": 0, "...": 0},
-  "clients": {"Desktop (Monarch)": 0, "Desktop (Win32)": 0, "OWA": 0},
+  "total_items": 1387,
+  "verbatim_items": 148,
+  "structured_only_items": 1239,
+  "negative_items": 93,
+  "sentiment": {"Negative": 93, "Positive": 31, "Neutral": 24, "Unknown": 1239},
+  "rating": {"ThumbsDown": 329, "ThumbsUp": 1058},
+  "rating_scope": "all_feedback",
+  "verbatim_rating": {"ThumbsDown": 110, "ThumbsUp": 38},
+  "languages": {"en": 1380, "es": 4, "...": 0},
+  "clients": {"Desktop (Monarch)": 973, "Desktop (Win32)": 205, "OWA": 209},
   "topic_counts": {"1": 0, "2": 0, "...": 0},
   "topic_percentages": {"1": 0.0, "...": 0.0},
   "category_counts": {"Drafting": 0, "Scheduling": 0, "...": 0},

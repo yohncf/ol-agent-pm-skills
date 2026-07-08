@@ -380,6 +380,41 @@ pass rate, top failure family per arm) to the user when done.
 }
 ```
 
+## Filing ADO bugs from a single-run triage
+
+When the user wants ADO bugs from a single-run triage manifest (not a
+two-run regression — that path belongs to `seval-regression-ticket-sync`),
+follow these conventions:
+
+- **Granularity:** one Bug per `trend` (the manifest's `trend_rollup` key),
+  not per assertion. Title: `[SEVAL CodeGen <run-id>] <trend> (N failures, M critical)`.
+- **Priority:** any trend with at least one `critical`-level row → **P1**;
+  otherwise **P2**.
+- **Routing:** tags `OutlookAgent` + `SevalRegression`; assign via the shared
+  owners config (`../shared/configs/ado_owners_outlook-agent.json`); area
+  `Outlook Web\Outlook Copilot Service\Outlook Agent`. Add a Hyperlink
+  relation to the published `eval-runs/` report.
+
+**Every Bug description MUST open with a "Main issue / root cause" block.**
+A title plus a list of representative failures is **not enough** for an
+engineer to act — they need the diagnosis stated plainly up front. The block
+(HTML, rendered above the representative-failures section) must contain:
+
+1. **Stats line** — `N failures / M critical · family: <root-cause family> ·
+   primitives: <Tool (count), ...>` (the top affected tools/segments).
+2. **Plain-language explanation** of the actual defect (what CodeGen did vs.
+   what was expected), grounded in the judge rationale / reply text — e.g.
+   *"CodeGen narrates success in prose but never emits the tool call."*
+3. **Suggested action** — the concrete engineering follow-up.
+
+This was learned filing the run-576292 CodeGen bugs (#440709–440719): the
+first pass shipped titles + examples only, and the descriptions had to be
+back-filled so engineers understood the underlying issue per cluster. The
+reference implementation is `scripts/create_codegen_ado_bugs.py` (creation,
+one Bug per trend) and `scripts/update_codegen_ado_descriptions.py`
+(idempotent prepend of the Main-issue block — skips a Bug if the block is
+already present, so it is safe to re-run).
+
 ## Relationship to other skills
 
 - **`seval-run-publish`** — publishes this skill's HTML report to the
